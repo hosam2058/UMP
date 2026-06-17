@@ -68,7 +68,7 @@ def _fetch_gold_price():
                         break
             except Exception:
                 pass
-        time.sleep(30)
+        time.sleep(8)
 
 Thread(target=_fetch_gold_price, daemon=True).start()
 
@@ -532,12 +532,49 @@ section{padding:5rem 2rem}
 /* ══ PAYMENT SECTION ══ */
 .payment-section{background:var(--bg2)}
 .payment-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1.2rem}
-@media(max-width:700px){.payment-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:900px){.payment-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:600px){.payment-grid{grid-template-columns:repeat(2,1fr)}}
 .pay-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius2);padding:1.5rem;text-align:center;transition:all .2s}
 .pay-card:hover{border-color:var(--border2);transform:translateY(-3px)}
+.pay-card.crypto{border-color:rgba(247,147,26,.2)}
+.pay-card.crypto:hover{border-color:rgba(247,147,26,.5)}
+.pay-card.pp{border-color:rgba(0,112,243,.2)}
+.pay-card.pp:hover{border-color:rgba(0,112,243,.5)}
+.pay-other{
+  background:transparent;border:2px dashed var(--border2);border-radius:var(--radius2);
+  padding:1.5rem;text-align:center;cursor:pointer;transition:all .2s;text-decoration:none;display:block
+}
+.pay-other:hover{background:var(--gold3);border-color:var(--gold);transform:translateY(-3px)}
 .pay-icon{font-size:2.2rem;margin-bottom:.6rem}
 .pay-name{font-size:.9rem;font-weight:700;color:var(--gold);margin-bottom:.3rem}
 .pay-desc{font-size:.76rem;color:var(--muted)}
+
+/* ══ ABOUT SECTION ══ */
+.about-section{background:var(--bg3)}
+.about-grid{display:grid;grid-template-columns:1fr 1fr;gap:3rem;align-items:start}
+@media(max-width:900px){.about-grid{grid-template-columns:1fr}}
+.about-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:2rem}
+.about-stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;margin-top:1.5rem}
+.astat{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius2);padding:1.2rem;text-align:center}
+.astat-num{font-size:1.8rem;font-weight:900;color:var(--gold);line-height:1}
+.astat-lbl{font-size:.72rem;color:var(--muted);margin-top:.2rem}
+.about-list{list-style:none;margin-top:1.2rem}
+.about-list li{display:flex;align-items:flex-start;gap:.7rem;padding:.55rem 0;border-bottom:1px solid var(--border);font-size:.86rem}
+.about-list li:last-child{border-bottom:none}
+.about-list li .al-icon{flex-shrink:0;font-size:1.1rem;margin-top:.05rem}
+.about-list li .al-text{color:var(--muted);line-height:1.6}
+.about-list li .al-text strong{color:var(--text)}
+.tech-stack{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem}
+.tech-chip{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:.3rem .75rem;font-size:.76rem;font-weight:600;color:var(--muted)}
+.tech-chip.active{border-color:var(--border2);color:var(--gold);background:var(--gold3)}
+
+/* ══ LIVE INDICATOR ══ */
+.live-badge{
+  display:inline-flex;align-items:center;gap:.4rem;
+  background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);
+  border-radius:50px;padding:.25rem .7rem;font-size:.72rem;color:var(--green);font-weight:700
+}
+.ws-status{font-size:.68rem;color:var(--muted2);text-align:center;margin-top:.4rem}
 
 /* ══ FOOTER ══ */
 .footer{background:#050508;border-top:1px solid var(--border);padding:3rem 2rem 2rem}
@@ -598,6 +635,7 @@ section{padding:5rem 2rem}
     <a href="#plans">الخطط</a>
     <a href="#courses">الكورسات</a>
     <a href="#payment">الدفع</a>
+    <a href="#about">عن النظام</a>
   </div>
   <div class="nav-right">
     <div class="nav-price">
@@ -1096,13 +1134,112 @@ section{padding:5rem 2rem}
   </div>
 </section>
 
+<!-- ABOUT SECTION -->
+<section class="about-section" id="about">
+  <div class="container">
+    <div class="sec-header center">
+      <div class="sec-badge">ℹ️ عن النظام</div>
+      <h2 class="sec-title">نظام <span class="hl">متكامل ومتطور</span> للتداول الذكي</h2>
+      <p class="sec-sub">ليس مجرد بوت — منظومة كاملة مبنية على أحدث تقنيات الذكاء الاصطناعي وتحليل البيانات اللحظية</p>
+    </div>
+    <div class="about-grid">
+      <div>
+        <div class="about-card" style="margin-bottom:1.5rem">
+          <div style="font-size:.85rem;font-weight:700;color:var(--gold);margin-bottom:1rem;display:flex;align-items:center;gap:.4rem">
+            🏗️ مكوّنات النظام
+          </div>
+          <ul class="about-list">
+            <li>
+              <span class="al-icon">📡</span>
+              <div class="al-text"><strong>Finnhub WebSocket (لحظي)</strong> — اتصال مباشر بخوادم Finnhub لجلب أسعار XAUUSD tick-by-tick بأقل من ثانية، مع Fallback تلقائي عبر Yahoo Finance</div>
+            </li>
+            <li>
+              <span class="al-icon">🧠</span>
+              <div class="al-text"><strong>Gemini Vision AI (15 مفتاح)</strong> — تحليل صور الشارت بنماذج gemini-1.5-flash/pro مع تدوير تلقائي ذكي بين المفاتيح عند نفاد الحصة</div>
+            </li>
+            <li>
+              <span class="al-icon">📊</span>
+              <div class="al-text"><strong>محرك التحليل الفني</strong> — يحسب 12 مؤشر في الوقت الفعلي (RSI، MACD، Bollinger، ATR، Stochastic، Fibonacci، EMA، دعم/مقاومة...) من بيانات الأسعار الحية</div>
+            </li>
+            <li>
+              <span class="al-icon">⚡</span>
+              <div class="al-text"><strong>محرك توليد الإشارات</strong> — لا يُصدر إشارة إلا عند توافق أغلبية المصادر، يرفض الإشارات الضعيفة لحماية رأس المال تلقائياً</div>
+            </li>
+            <li>
+              <span class="al-icon">🤖</span>
+              <div class="al-text"><strong>Telegram Bot API (python-telegram-bot)</strong> — إرسال فوري لآلاف المشتركين مع دعم الصور والاستبيانات والبث الجماعي من لوحة التحكم</div>
+            </li>
+            <li>
+              <span class="al-icon">🗄️</span>
+              <div class="al-text"><strong>SQLite + SQLAlchemy ORM</strong> — قاعدة بيانات محلية لإدارة المستخدمين والإشارات والإحصاءات مع APScheduler للمهام المجدوَلة</div>
+            </li>
+          </ul>
+        </div>
+        <div class="about-card">
+          <div style="font-size:.85rem;font-weight:700;color:var(--gold);margin-bottom:.8rem">⚙️ التقنيات المستخدمة</div>
+          <div class="tech-stack">
+            <div class="tech-chip active">Python 3.11</div>
+            <div class="tech-chip active">Flask</div>
+            <div class="tech-chip active">python-telegram-bot 20</div>
+            <div class="tech-chip active">Google Gemini AI</div>
+            <div class="tech-chip active">Finnhub WebSocket</div>
+            <div class="tech-chip active">Yahoo Finance API</div>
+            <div class="tech-chip active">SQLAlchemy ORM</div>
+            <div class="tech-chip active">APScheduler</div>
+            <div class="tech-chip">MetaApi MT5</div>
+            <div class="tech-chip">Pillow (Image)</div>
+            <div class="tech-chip">NumPy</div>
+            <div class="tech-chip">Chart.js</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="about-card" style="margin-bottom:1.5rem">
+          <div style="font-size:.85rem;font-weight:700;color:var(--gold);margin-bottom:1rem">📈 ماذا يفعل النظام؟</div>
+          <ul class="about-list">
+            <li><span class="al-icon">🔄</span><div class="al-text"><strong>يراقب السوق 24/7</strong> — يتابع أسعار الذهب XAUUSD لحظة بلحظة ويراقب التغيرات الكبيرة ويُنبّه المتداولين فوراً</div></li>
+            <li><span class="al-icon">📐</span><div class="al-text"><strong>يحلّل فنياً بدقة</strong> — يُشغّل 12 خوارزمية تحليل فني في وقت واحد ويجمع نتائجها في "نقطة ثقة" واحدة من 100%</div></li>
+            <li><span class="al-icon">🎯</span><div class="al-text"><strong>يُصدر إشارات دقيقة</strong> — يُرسل إشارة BUY أو SELL مع نقطة دخول + TP1+TP2+TP3 + وقف خسارة محسوب بدقة</div></li>
+            <li><span class="al-icon">🧠</span><div class="al-text"><strong>يحلّل الشارت بصرياً</strong> — يقبل صورة الشارت من المستخدم ويُحللها بـ Gemini Vision ويُعطي تحليلاً مفصلاً باللغة العربية</div></li>
+            <li><span class="al-icon">📊</span><div class="al-text"><strong>يُدير المجتمع</strong> — يضم قاعدة بيانات المشتركين، يُرسل تذكيرات يومية، يدير الاشتراكات والصلاحيات</div></li>
+            <li><span class="al-icon">🕐</span><div class="al-text"><strong>يراقب جلسات السوق</strong> — يُتابع جلسات لندن / نيويورك / آسيا ويُنبّه عند أوقات السيولة العالية</div></li>
+          </ul>
+        </div>
+        <div class="about-card">
+          <div style="font-size:.85rem;font-weight:700;color:var(--gold);margin-bottom:1rem">🏆 أرقام حقيقية</div>
+          <div class="about-stat-grid">
+            <div class="astat">
+              <div class="astat-num" id="ab-users">—</div>
+              <div class="astat-lbl">مستخدم مسجّل</div>
+            </div>
+            <div class="astat">
+              <div class="astat-num" id="ab-signals">—</div>
+              <div class="astat-lbl">إشارة أُرسلت</div>
+            </div>
+            <div class="astat">
+              <div class="astat-num">12</div>
+              <div class="astat-lbl">مصدر تأكيد</div>
+            </div>
+            <div class="astat">
+              <div class="astat-num">15</div>
+              <div class="astat-lbl">مفتاح Gemini AI</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="sep"></div>
+
 <!-- PAYMENT SECTION -->
 <section class="payment-section" id="payment">
   <div class="container">
     <div class="sec-header center">
       <div class="sec-badge">💳 طرق الدفع</div>
       <h2 class="sec-title">ادفع بـ <span class="hl">الطريقة</span> الأسهل لك</h2>
-      <p class="sec-sub">بعد الدفع تواصل معنا عبر واتساب مع إيصال الدفع لتفعيل حسابك فوراً</p>
+      <p class="sec-sub">7 طرق دفع متاحة — بعد الدفع تواصل معنا عبر واتساب مع إيصال الدفع لتفعيل حسابك فوراً</p>
     </div>
     <div class="payment-grid">
       <div class="pay-card">
@@ -1125,6 +1262,26 @@ section{padding:5rem 2rem}
         <div class="pay-name">Visa / MasterCard</div>
         <div class="pay-desc">بطاقة الفيزا الدولية</div>
       </div>
+      <div class="pay-card crypto">
+        <div class="pay-icon">🟡</div>
+        <div class="pay-name">Binance Pay</div>
+        <div class="pay-desc">USDT / BTC / BNB</div>
+      </div>
+      <div class="pay-card pp">
+        <div class="pay-icon">🔵</div>
+        <div class="pay-name">PayPal</div>
+        <div class="pay-desc">دفع دولي آمن</div>
+      </div>
+      <div class="pay-card">
+        <div class="pay-icon">🟢</div>
+        <div class="pay-name">إنستاباي</div>
+        <div class="pay-desc">تحويل بنكي مباشر</div>
+      </div>
+      <a href="{{ whatsapp }}" class="pay-other" target="_blank">
+        <div class="pay-icon">❓</div>
+        <div class="pay-name" style="color:var(--gold)">لديك طريقة أخرى؟</div>
+        <div class="pay-desc">تواصل معنا ونُرتّب لك</div>
+      </a>
     </div>
     <div style="text-align:center;margin-top:2.5rem">
       <a href="{{ whatsapp }}" class="btn-primary" target="_blank" style="display:inline-flex">
@@ -1139,20 +1296,25 @@ section{padding:5rem 2rem}
   <div class="footer-grid">
     <div class="footer-brand">
       <div class="fb-logo">⚡ بوت التداول الذكي</div>
-      <p class="fb-desc">نظام إشارات XAUUSD احترافي مدعوم بـ12 مصدر تأكيد وذكاء اصطناعي Gemini Vision — بيانات حقيقية من Finnhub.</p>
+      <p class="fb-desc">منظومة تداول ذكية متكاملة — إشارات XAUUSD لحظية بـ12 مصدر تأكيد، Gemini Vision AI، Finnhub WebSocket، وبيانات حية أقل من ثانية. مبنية على Python 3.11 + Flask + Telegram Bot.</p>
     </div>
     <div class="footer-links">
       <h4>الروابط</h4>
       <a href="#signal">آخر إشارة</a>
       <a href="#features">المميزات</a>
+      <a href="#indicators">المؤشرات</a>
       <a href="#plans">الخطط</a>
       <a href="#courses">الكورسات</a>
+      <a href="#about">عن النظام</a>
       <a href="#payment">الدفع</a>
       <a href="/files">تحميل النظام</a>
     </div>
     <div class="footer-links">
       <h4>تواصل معنا</h4>
-      <a href="{{ whatsapp }}" target="_blank">💬 واتساب</a>
+      <a href="{{ whatsapp }}" target="_blank">💬 واتساب مباشر</a>
+      <a href="{{ whatsapp }}" target="_blank">📲 اشتراك الخطط</a>
+      <a href="{{ whatsapp }}" target="_blank">📚 استفسار الكورسات</a>
+      <a href="{{ whatsapp }}" target="_blank">💳 إيصالات الدفع</a>
     </div>
   </div>
   <div class="footer-bottom">
@@ -1245,43 +1407,103 @@ function buildMiniChart(hist) {
   });
 }
 
+// ─── Real-time price updater (shared by WS + polling) ───
+let _lastPrice = null;
+let _sessionHigh = null;
+let _sessionLow  = null;
+
+function applyPrice(price, chg, pct, high, low, source) {
+  if (!price || price < 100) return;
+  const isUp = chg >= 0;
+  const sign = isUp ? '+' : '';
+
+  document.getElementById('nav-price-val').textContent = formatNum(price);
+  const priceEl = document.getElementById('pc-price');
+  if (priceEl) {
+    priceEl.textContent = formatNum(price);
+    priceEl.style.color = isUp ? 'var(--green)' : 'var(--red)';
+    setTimeout(() => { if(priceEl) priceEl.style.color = 'var(--gold)'; }, 600);
+  }
+
+  const chgEl = document.getElementById('pc-change');
+  if (chgEl) {
+    chgEl.textContent = `${sign}${formatNum(Math.abs(chg))} (${sign}${Math.abs(pct).toFixed(3)}%)`;
+    chgEl.className = 'pc-change ' + (isUp ? 'up' : 'dn');
+  }
+
+  if (high) { const el = document.getElementById('pc-high'); if(el) el.textContent = formatNum(high); }
+  if (low)  { const el = document.getElementById('pc-low');  if(el) el.textContent = formatNum(low); }
+
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('ar-EG');
+  const updEl = document.getElementById('pc-updated');
+  if (updEl) updEl.textContent = timeStr;
+
+  const sess = getSession();
+  const sessEl = document.getElementById('session-name');
+  if (sessEl) sessEl.textContent = sess;
+
+  ['tk-price','tk-price2'].forEach(id => { const el = document.getElementById(id); if(el) el.textContent = formatNum(price); });
+  ['tk-session','tk-session2'].forEach(id => { const el = document.getElementById(id); if(el) el.textContent = sess; });
+
+  const srcEl = document.getElementById('pc-updated-time');
+  if (srcEl) srcEl.textContent = `بيانات لحظية من ${source} — تحديث آخر: ${timeStr}`;
+
+  _lastPrice = price;
+  priceHistory.push({ t: Math.floor(Date.now()/1000), p: price });
+  if (priceHistory.length > 60) priceHistory.shift();
+  buildMiniChart(priceHistory);
+}
+
+// ─── Binance WebSocket (sub-second real-time for XAUUSDT) ───
+let binanceWS = null;
+let wsConnected = false;
+let wsReconnectTimer = null;
+
+function startBinanceWS() {
+  if (binanceWS) { try { binanceWS.close(); } catch(e){} }
+  try {
+    binanceWS = new WebSocket('wss://stream.binance.com:9443/ws/xauusdt@ticker');
+
+    binanceWS.onopen = () => {
+      wsConnected = true;
+      const srcEl = document.getElementById('pc-updated-time');
+      if(srcEl) srcEl.textContent = '🟢 Binance WebSocket متصل — بيانات لحظية أقل من ثانية';
+    };
+
+    binanceWS.onmessage = (event) => {
+      try {
+        const d = JSON.parse(event.data);
+        const price = parseFloat(d.c);
+        const open  = parseFloat(d.o);
+        const chg   = price - open;
+        const pct   = (chg / open) * 100;
+        const high  = parseFloat(d.h);
+        const low   = parseFloat(d.l);
+        applyPrice(price, chg, pct, high, low, 'Binance WebSocket ⚡');
+      } catch(e) {}
+    };
+
+    binanceWS.onerror = () => { wsConnected = false; };
+    binanceWS.onclose = () => {
+      wsConnected = false;
+      const srcEl = document.getElementById('pc-updated-time');
+      if(srcEl) srcEl.textContent = '🔴 WS انقطع — إعادة الاتصال...';
+      if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+      wsReconnectTimer = setTimeout(startBinanceWS, 4000);
+    };
+  } catch(e) {
+    setTimeout(startBinanceWS, 5000);
+  }
+}
+
+// ─── HTTP polling fallback (every 5s when WS active, 3s when not) ───
 async function loadPrice() {
   try {
     const r = await fetch('/api/price');
     const d = await r.json();
-    if (!d.price) return;
-
-    const price = d.price;
-    const chg   = d.change || 0;
-    const pct   = d.pct || 0;
-    const isUp  = chg >= 0;
-
-    document.getElementById('nav-price-val').textContent = formatNum(price);
-    document.getElementById('pc-price').textContent = formatNum(price);
-
-    const chgEl = document.getElementById('pc-change');
-    const sign  = isUp ? '+' : '';
-    chgEl.textContent = `${sign}${formatNum(chg)} (${sign}${pct.toFixed(3)}%)`;
-    chgEl.className   = 'pc-change ' + (isUp ? 'up' : 'dn');
-
-    const highEl = document.getElementById('pc-high');
-    const lowEl  = document.getElementById('pc-low');
-    if (d.high) highEl.textContent = formatNum(d.high);
-    if (d.low)  lowEl.textContent  = formatNum(d.low);
-    if (d.updated) document.getElementById('pc-updated').textContent = d.updated;
-
-    const sess = getSession();
-    document.getElementById('session-name').textContent = sess;
-
-    // Ticker
-    ['tk-price','tk-price2'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = formatNum(price);
-    });
-    ['tk-session','tk-session2'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = sess;
-    });
+    if (!d.price || wsConnected) return; // WS takes priority
+    applyPrice(d.price, d.change||0, d.pct||0, d.high, d.low, 'Yahoo Finance (HTTP polling)');
   } catch(e) {}
 }
 
@@ -1325,11 +1547,11 @@ async function loadStats() {
   try {
     const r = await fetch('/api/stats');
     const d = await r.json();
-    ['h-users','st-users'].forEach(id => {
+    ['h-users','st-users','ab-users'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.textContent = (d.users || 0).toLocaleString();
     });
-    ['h-signals','st-signals'].forEach(id => {
+    ['h-signals','st-signals','ab-signals'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.textContent = (d.signals || 0).toLocaleString();
     });
@@ -1387,17 +1609,26 @@ async function loadSignal() {
 }
 
 async function refreshAll() {
-  await Promise.all([loadPrice(), loadHistory(), loadStats(), loadSignal()]);
+  await Promise.all([loadHistory(), loadStats(), loadSignal()]);
+  loadPrice(); // also kick off HTTP price poll
 }
 
-// Initial load
+// Start Binance WebSocket for sub-second real-time price
+startBinanceWS();
+
+// Initial data load
 refreshAll();
 
-// Auto-refresh
-setInterval(loadPrice, 30000);
-setInterval(loadHistory, 60000);
-setInterval(loadStats, 120000);
-setInterval(loadSignal, 90000);
+// Auto-refresh intervals
+setInterval(loadPrice, 5000);      // HTTP fallback every 5s
+setInterval(loadHistory, 45000);   // chart history every 45s
+setInterval(loadStats, 90000);     // stats every 90s
+setInterval(loadSignal, 60000);    // signal every 60s
+
+// Keep WebSocket alive check
+setInterval(() => {
+  if (!wsConnected && !wsReconnectTimer) startBinanceWS();
+}, 10000);
 </script>
 </body>
 </html>"""
