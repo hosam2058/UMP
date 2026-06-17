@@ -231,8 +231,14 @@ class GeminiManager:
         self.valid_keys = [k for k in self.keys if k]
         self.current_index = 0
         self.exhausted = set()
-        self.model_names = [
+        # نماذج النص فقط
+        self.text_models = [
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
             "gemini-2.0-flash",
+        ]
+        # نماذج الرؤية (صور الشارت) - هذه فقط تدعم الصور
+        self.vision_models = [
             "gemini-1.5-flash",
             "gemini-1.5-pro",
         ]
@@ -246,31 +252,62 @@ class GeminiManager:
         self.current_index = available[0]
         return self.valid_keys[self.current_index]
 
+    def _rotate_key(self):
+        self.exhausted.add(self.current_index)
+
     async def generate(self, prompt: str, image_data: bytes = None, image_mime: str = "image/jpeg") -> str:
-        last_error = None
-        for attempt in range(len(self.valid_keys) * 2):
+        import PIL.Image
+        import io as _io
+
+        models = self.vision_models if image_data else self.text_models
+        max_attempts = max(len(self.valid_keys) * len(models), 1)
+
+        for attempt in range(max_attempts):
+            if not self.valid_keys:
+                break
             key = self._get_next_key()
-            genai.configure(api_key=key)
-            for model_name in self.model_names:
+            try:
+                genai.configure(api_key=key)
+            except Exception:
+                self._rotate_key()
+                continue
+
+            for model_name in models:
                 try:
                     model = genai.GenerativeModel(model_name)
                     if image_data:
-                        import PIL.Image
-                        import io
-                        img = PIL.Image.open(io.BytesIO(image_data))
-                        response = model.generate_content([prompt, img])
+                        img = PIL.Image.open(_io.BytesIO(image_data))
+                        # تحويل إلى RGB إذا لزم
+                        if img.mode not in ("RGB", "RGBA"):
+                            img = img.convert("RGB")
+                        response = model.generate_content(
+                            [prompt, img],
+                            generation_config={"max_output_tokens": 2048}
+                        )
                     else:
-                        response = model.generate_content(prompt)
-                    return response.text
+                        response = model.generate_content(
+                            prompt,
+                            generation_config={"max_output_tokens": 1024}
+                        )
+                    text = response.text
+                    if text and len(text) > 10:
+                        logger.info(f"✅ Gemini OK: {model_name} (key #{self.current_index+1})")
+                        return text
                 except Exception as e:
                     err = str(e).lower()
-                    if "quota" in err or "429" in err or "exhausted" in err:
-                        self.exhausted.add(self.current_index)
+                    logger.warning(f"⚠️ Gemini {model_name} key#{self.current_index+1}: {str(e)[:80]}")
+                    if any(x in err for x in ["quota", "429", "exhausted", "resource_exhausted"]):
+                        self._rotate_key()
                         break
-                    last_error = e
+                    if any(x in err for x in ["invalid_api_key", "api_key", "permission"]):
+                        self._rotate_key()
+                        break
                     continue
-            await asyncio.sleep(0.5)
-        return f"عذراً، النظام مشغول حالياً. حاول لاحقاً."
+
+            await asyncio.sleep(0.3)
+
+        logger.error("❌ جميع مفاتيح Gemini استُنزفت أو فشلت")
+        return "عذراً، خدمة الذكاء الاصطناعي مشغولة حالياً. يرجى إعادة المحاولة بعد دقيقة."
 
 gemini = GeminiManager()
 
@@ -1482,110 +1519,114 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = """🎯 *خطط الاشتراك - اختر ما يناسبك*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🥉 *الخطة الأساسية — 5$*
-• سعر الذهب المباشر لحظة بلحظة
-• معاينة الإشارات (بدون أرقام)
-• مؤشرات RSI و MACD
+🥉 *الخطة الفضية — 10$*
+• سعر الذهب الحي لحظة بلحظة
+• 3 إشارات يومياً (كاملة مع الأرقام)
+• مؤشرات RSI + MACD
+• معلومة الجلسة (لندن/نيويورك/آسيا)
 • دعم واتساب
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🥈 *الخطة المتقدمة — 15$*
-• كل مميزات الأساسية +
-• إشارات XAUUSD كاملة مع الأرقام
-• 12 مصدر تأكيد لكل إشارة
-• تحليل الشارت (5 صور يومياً)
-• الوصول لكورسات التداول الأساسية
+🥈 *الخطة الذهبية — 20$*
+• كل مميزات الفضية +
+• 10 إشارات يومياً (كاملة TP1+TP2+TP3)
+• 3 تحليلات شارت AI يومياً
+• جميع المؤشرات الـ12 (RSI+MACD+BB+ATR+Stoch+Fib+S/R+EMA)
+• دعم واتساب أولوية
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🥇 *الخطة الاحترافية VIP — 30$*
-• كل مميزات المتقدمة +
-• إشارات تلقائية فورية 24/7
-• تحليل شارت غير محدود بالذكاء الاصطناعي
-• مكتبة +200 كورس كاملة بدون قيود
-• إشعار فوري عند كل إشارة قوية
-• أولوية دعم VIP مباشر
+💎 *الخطة الماسية VIP — 50$*
+• كل مميزات الذهبية +
+• إشارات تلقائية غير محدودة 24/7
+• تحليل شارت AI غير محدود
+• إشعار فوري لكل إشارة قوية (>80% ثقة)
+• أولوية دعم VIP مباشر على مدار الساعة
 
-🔥 *الأكثر مبيعاً: الخطة الاحترافية!*"""
+🔥 *الأكثر مبيعاً: الخطة الماسية!*
+⚠️ الكورسات مدفوعة بشكل منفصل وليست ضمن الخطط"""
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🥉 الأساسية 5$", callback_data="plan_basic"),
-             InlineKeyboardButton("🥈 المتقدمة 15$", callback_data="plan_pro")],
-            [InlineKeyboardButton("🥇 الاحترافية VIP 30$", callback_data="plan_vip")],
+            [InlineKeyboardButton("🥉 الفضية 10$", callback_data="plan_basic"),
+             InlineKeyboardButton("🥈 الذهبية 20$", callback_data="plan_pro")],
+            [InlineKeyboardButton("💎 الماسية VIP 50$", callback_data="plan_vip")],
             [InlineKeyboardButton("💬 اشترك الآن واتساب", url=WHATSAPP_LINK)],
             [InlineKeyboardButton("🔙 العودة", callback_data="start")]
         ])
         await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
     elif data == "plan_basic":
-        msg = """🥉 *الخطة الأساسية — 5$ شهرياً*
+        msg = """🥉 *الخطة الفضية — 10$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✅ سعر الذهب المباشر لحظة بلحظة
-✅ معاينة الإشارات (الاتجاه فقط)
-✅ مؤشر RSI و MACD
-✅ تنبيهات تحركات السوق الكبيرة
+✅ سعر الذهب الحي لحظة بلحظة (XAUUSD)
+✅ 3 إشارات يومياً (كاملة مع الأرقام)
+✅ دخول + TP1 + وقف الخسارة
+✅ مؤشر RSI (14 فترة) + MACD (12/26/9)
+✅ معلومة الجلسة التداولية
 ✅ دعم واتساب
 
-❌ أرقام الإشارة الكاملة
-❌ تحليل الشارت بالذكاء الاصطناعي
-❌ الكورسات والمكتبة التعليمية
+❌ تحليل شارت AI
+❌ مؤشرات متقدمة (Bollinger/ATR/Stoch/Fib)
+❌ إشارات تلقائية 24/7
+⚠️ الكورسات مدفوعة بشكل منفصل
 
-💬 *تواصل معنا لتفعيل الخطة الأساسية*"""
+💬 *تواصل معنا لتفعيل الفضية*"""
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💬 اشترك الأساسية 5$", url=WHATSAPP_LINK)],
-            [InlineKeyboardButton("⬆️ المتقدمة 15$", callback_data="plan_pro"),
+            [InlineKeyboardButton("💬 اشترك الفضية 10$", url=WHATSAPP_LINK)],
+            [InlineKeyboardButton("⬆️ الذهبية 20$", callback_data="plan_pro"),
              InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
         ])
         await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
     elif data == "plan_pro":
-        msg = """🥈 *الخطة المتقدمة — 15$ شهرياً*
+        msg = """🥈 *الخطة الذهبية — 20$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✅ سعر الذهب المباشر لحظة بلحظة
-✅ إشارات XAUUSD كاملة مع جميع الأرقام
-✅ 12 مصدر تأكيد لكل إشارة
-✅ TP1 + TP2 + TP3 + وقف الخسارة
-✅ تحليل الشارت بالذكاء الاصطناعي (5/يوم)
-✅ الوصول لكورسات التحليل الأساسية
-✅ دعم واتساب مباشر
+✅ سعر الذهب الحي لحظة بلحظة
+✅ 10 إشارات يومياً (كاملة)
+✅ دخول + TP1 + TP2 + TP3 + وقف الخسارة
+✅ جميع المؤشرات الـ12:
+   RSI + MACD + Bollinger + ATR + Stoch + Fibonacci + S/R + EMA
+✅ 3 تحليلات شارت AI يومياً (Gemini Vision)
+✅ نسبة الثقة + عدد مصادر التأكيد
+✅ دعم واتساب أولوية
 
-❌ إشارات تلقائية 24/7
-❌ مكتبة الكورسات الكاملة (+200 كورس)
+❌ إشارات تلقائية غير محدودة 24/7
+⚠️ الكورسات مدفوعة بشكل منفصل
 
-💬 *تواصل معنا لتفعيل الخطة المتقدمة*"""
+💬 *تواصل معنا لتفعيل الذهبية*"""
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💬 اشترك المتقدمة 15$", url=WHATSAPP_LINK)],
-            [InlineKeyboardButton("⬆️ VIP 30$", callback_data="plan_vip"),
+            [InlineKeyboardButton("💬 اشترك الذهبية 20$", url=WHATSAPP_LINK)],
+            [InlineKeyboardButton("⬆️ الماسية 50$", callback_data="plan_vip"),
              InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
         ])
         await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
     elif data == "plan_vip":
-        msg = """🥇 *الخطة الاحترافية VIP — 30$ شهرياً*
+        msg = """💎 *الخطة الماسية VIP — 50$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✅ سعر الذهب المباشر لحظة بلحظة
-✅ إشارات XAUUSD كاملة مع جميع الأرقام
-✅ 12 مصدر تأكيد لكل إشارة
-✅ TP1 + TP2 + TP3 + وقف الخسارة
-✅ تحليل الشارت بالذكاء الاصطناعي (غير محدود)
-✅ إشارات تلقائية فورية 24/7
-✅ مكتبة +200 كورس احترافي بدون قيود
-✅ إشعار فوري عند كل إشارة قوية
-✅ أولوية دعم VIP مباشر على مدار الساعة
+✅ سعر الذهب الحي لحظة بلحظة
+✅ إشارات تلقائية غير محدودة 24/7
+✅ دخول + TP1 + TP2 + TP3 + وقف الخسارة
+✅ جميع المؤشرات الـ12 كاملة
+✅ تحليل شارت AI غير محدود (Gemini Vision)
+✅ إشعار فوري عند كل إشارة قوية (>80% ثقة)
+✅ تحديث أسعار كل 3 دقائق (Finnhub WebSocket)
+✅ أولوية دعم VIP مباشر 24/7
 
 🔥 *الأكثر مبيعاً والأفضل قيمة!*
-💎 وفّر 60% مقارنة بالشراء المنفصل"""
+💎 كل شيء غير محدود — مثالي للمتداول الجاد
+⚠️ الكورسات مدفوعة بشكل منفصل"""
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔥 اشترك VIP الآن 30$", url=WHATSAPP_LINK)],
+            [InlineKeyboardButton("🔥 اشترك الماسية الآن 50$", url=WHATSAPP_LINK)],
             [InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
         ])
         await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
     elif data == "subscription":
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🥉 الأساسية 5$", callback_data="plan_basic"),
-             InlineKeyboardButton("🥈 المتقدمة 15$", callback_data="plan_pro")],
-            [InlineKeyboardButton("🥇 الاحترافية VIP 30$", callback_data="plan_vip")],
+            [InlineKeyboardButton("🥉 الفضية 10$", callback_data="plan_basic"),
+             InlineKeyboardButton("🥈 الذهبية 20$", callback_data="plan_pro")],
+            [InlineKeyboardButton("💎 الماسية VIP 50$", callback_data="plan_vip")],
             [InlineKeyboardButton("💬 اشترك الآن واتساب", url=WHATSAPP_LINK)],
             [InlineKeyboardButton("🔙 العودة", callback_data="start")]
         ])
-        await query.edit_message_text("🎯 *اختر خطة الاشتراك المناسبة:*", reply_markup=markup, parse_mode="Markdown")
+        await query.edit_message_text("🎯 *اختر خطة الاشتراك المناسبة:*\n⚠️ الكورسات مدفوعة بشكل منفصل", reply_markup=markup, parse_mode="Markdown")
     elif data == "payment_methods":
         msg = """💳 *طرق الدفع المتاحة*
 ━━━━━━━━━━━━━━━━━━━━━━━━
