@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "python-3.11"]
 
 [deployment]
 router = "application"
@@ -11,6 +11,42 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Trading Website"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Trading Bot"
+
+[[workflows.workflow]]
+name = "Trading Website"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python website.py"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow]]
+name = "Trading Bot"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python trading_bot.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
@@ -20,9 +56,43 @@ path = "scripts/post-merge.sh"
 timeoutMs = 20000
 
 [[ports]]
+localPort = 5000
+externalPort = 5000
+
+[[ports]]
 localPort = 8080
 externalPort = 8080
 
 [[ports]]
 localPort = 8081
 externalPort = 80
+
+[nix]
+channel = "stable-25_05"
+packages = ["espeak-ng", "ffmpeg-full", "freetype", "glibcLocales", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "tcl", "tk", "zlib"]
+
+[userenv]
+
+[userenv.shared]
+TELEGRAM_BOT_TOKEN = "8552775099:AAG3PIU1kUGUmAAicG0M532mFe48Yhte7pk"
+TRADING_BOT_TOKEN = "8543638509:AAGu_lP83It50LcIXbtZeaC5stuqz5HvHn4"
+GEMINI_API_KEY = "AIzaSyASjNDsSHOst8Wg6oz2vsBwV1ctOMPctEY"
+WHATSAPP_NUMBER = "201500236188"
+GOLD_API_KEY = "2rz01smiitiilm-io"
+TELEGRAM_CHAT_ID = "7929701751"
+CYCLE_INTERVAL = "300"
+GEMINI_KEY_1 = "AIzaSyANwotULZ5HEVAlge2VzYKDXwf3LdyHFcQ"
+GEMINI_KEY_2 = "AIzaSyAtB8OwruC2J02GVMxfe5dw1u-8gWoziq0"
+GEMINI_KEY_3 = "AIzaSyBurtBftoKyg4OxTP2wMhoUVu16-AcmMpU"
+GEMINI_KEY_4 = "AIzaSyAGm5QhX3Ot38bgtrlBXjD9MJICFEZabEU"
+GEMINI_KEY_5 = "AIzaSyBks5DR2VF7pKsieBGXgXS7kt9iVIN1sjM"
+GEMINI_KEY_6 = "AIzaSyARvVNypS9LoLx57RcCpRjfiemE9Qel0dQ"
+GEMINI_KEY_7 = "AIzaSyDFWK_sPar72LFNApoUUeO1t-hYSXfzsIE"
+GEMINI_KEY_8 = "AIzaSyBoFAmyI9W23n_LXwb-CtBC-5xBthfjcuc"
+GEMINI_KEY_9 = "AIzaSyDkrsEhELmyQPjvK-9qhKI2seJQ9bIks2Y"
+GEMINI_KEY_10 = "AIzaSyCXkzDeDf3PhR1ougmh1egukYbmlkRbRJU"
+GEMINI_KEY_11 = "AIzaSyAZ2PtuS4Y6sf73sytMOcoiQmZ95xKV13E"
+GEMINI_KEY_12 = "AIzaSyBfVt20aR4vRXU5urBlhaQGCy2Nh3A-L-U"
+GEMINI_KEY_13 = "AIzaSyBOSwmNl3xqm0_Lm4wnQM9o-zU_qFDgiK4"
+GEMINI_KEY_14 = "AIzaSyCCeXrAHi6vMiZ_qiAv62isG4HzCvEfXeU"
+GEMINI_KEY_15 = "AIzaSyB_GjFS6YTgRj_zzl_nIAp-QXTtA7LmpB8"

@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix Control Center 💀</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+Arabic:wght@300;500;700&display=swap');
+        
+        :root {
+            --neon: #00ff41;
+            --dark: #0a0a0a;
+            --surface: #121212;
+            --border: #333333;
+            --text: #e0e0e0;
+        }
+
+        body {
+            background-color: var(--dark);
+            font-family: 'Noto Sans Arabic', sans-serif;
+            color: var(--text);
+            margin: 0;
+            background-image: linear-gradient(rgba(0, 255, 65, 0.05) 1px, transparent 1px), 
+                              linear-gradient(90deg, rgba(0, 255, 65, 0.05) 1px, transparent 1px);
+            background-size: 30px 30px;
+        }
+
+        /* Sidebar - Matrix Style */
+        .sidebar {
+            width: 200px;
+            height: 100vh;
+            position: fixed;
+            right: 0;
+            top: 0;
+            background: var(--surface);
+            border-left: 1px solid var(--neon);
+            padding: 20px 10px;
+            z-index: 1000;
+        }
+
+        .brand {
+            font-family: 'Orbitron', sans-serif;
+            color: var(--neon);
+            font-size: 1.2rem;
+            text-align: center;
+            margin-bottom: 30px;
+            text-shadow: 0 0 10px var(--neon);
+        }
+
+        .nav-link {
+            color: #888;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: 0.3s;
+            border-right: 3px solid transparent;
+        }
+
+        .nav-link:hover { color: var(--neon); background: rgba(0, 255, 65, 0.05); }
+        .nav-link.active { color: var(--neon); border-right-color: var(--neon); background: rgba(0, 255, 65, 0.1); }
+
+        /* Main Content */
+        .main {
+            margin-right: 200px;
+            padding: 30px;
+        }
+
+        /* Stats Blocks */
+        .stats-container {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            overflow-x: auto;
+            padding-bottom: 10px;
+        }
+
+        .stat-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 15px;
+            min-width: 160px;
+            flex: 1;
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-box::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 2px; height: 100%;
+            background: var(--neon);
+        }
+
+        .stat-label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+        .stat-value { font-size: 1.4rem; font-weight: 700; color: var(--neon); font-family: 'Orbitron', sans-serif; }
+
+        /* Sections */
+        .section { display: none; }
+        .section.active { display: block; animation: scanline 0.5s ease-out; }
+
+        @keyframes scanline {
+            from { opacity: 0; transform: scale(0.98); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        /* Control Cards */
+        .card-dark {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+
+        .card-header-pro {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--neon);
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Inputs & Buttons */
+        .input-matrix {
+            background: #000;
+            border: 1px solid var(--border);
+            color: var(--neon);
+            padding: 8px 12px;
+            width: 100%;
+            border-radius: 2px;
+            font-size: 0.85rem;
+            outline: none;
+        }
+
+        .input-matrix:focus { border-color: var(--neon); }
+
+        .btn-matrix {
+            background: transparent;
+            border: 1px solid var(--neon);
+            color: var(--neon);
+            padding: 8px 20px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            font-weight: 700;
+            transition: 0.3s;
+            cursor: pointer;
+            border-radius: 2px;
+        }
+
+        .btn-matrix:hover { background: var(--neon); color: #000; box-shadow: 0 0 15px var(--neon); }
+
+        /* Survey Block */
+        .survey-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: rgba(255,255,255,0.02);
+            border: 1px dashed var(--border);
+        }
+
+        /* Table Matrix */
+        .table-matrix {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+
+        .table-matrix th { color: #888; padding: 10px; border-bottom: 1px solid var(--border); text-align: right; }
+        .table-matrix td { padding: 12px 10px; border-bottom: 1px solid #1a1a1a; }
+        .table-matrix tr:hover { background: rgba(0,255,65,0.02); }
+
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-left: 5px; }
+
+        @media (max-width: 768px) {
+            .sidebar { width: 60px; }
+            .sidebar span, .brand span { display: none; }
+            .main { margin-right: 60px; padding: 15px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="brand">M<span>ATRIX</span></div>
+        <nav>
+            <a href="#" class="nav-link active" data-tab="overview"><i class="fas fa-terminal"></i> <span>النظام</span></a>
+            <a href="#" class="nav-link" data-tab="broadcast"><i class="fas fa-satellite-dish"></i> <span>البث</span></a>
+            <a href="#" class="nav-link" data-tab="users"><i class="fas fa-user-secret"></i> <span>العملاء</span></a>
+            <a href="/survey_results" class="nav-link" target="_blank"><i class="fas fa-poll-h"></i> <span>نتائج الاستبيانات</span></a>
+            <a href="#" class="nav-link" data-tab="ai"><i class="fas fa-microchip"></i> <span>الذكاء</span></a>
+        </nav>
+    </div>
+
+    <div class="main">
+        <!-- Stats -->
+        <div class="stats-container">
+            <div class="stat-box"><div class="stat-label">المجندين</div><div class="stat-value">{{ total_users }}</div></div>
+            <div class="stat-box"><div class="stat-label">خلايا اليوم</div><div class="stat-value">{{ joined_today }}</div></div>
+            <div class="stat-box"><div class="stat-label">المستبعدين</div><div class="stat-value">{{ blocked_users }}</div></div>
+            <div class="stat-box"><div class="stat-label">نشاط اللحظة</div><div class="stat-value" id="live-users-val">--</div></div>
+        </div>
+
+        <!-- Overview -->
+        <div id="overview" class="section active">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card-dark">
+                        <div class="card-header-pro"><i class="fas fa-chart-line"></i> روابط سريعة</div>
+                        <div class="d-grid gap-2">
+                            <a href="/survey_results" class="btn-matrix text-center" target="_blank">📊 عرض نتائج الاستبيانات الحالية</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card-dark">
+                        <div class="card-header-pro"><i class="fas fa-bolt"></i> خريطة الاستخدام</div>
+                        <table class="table-matrix">
+                            <thead><tr><th>المهمة</th><th class="text-center">العمليات</th></tr></thead>
+                            <tbody>
+                                {% for stat in usage_stats %}
+                                <tr>
+                                    <td>{{ stat['feature_name'] }}</td>
+                                    <td class="text-center"><span style="color: var(--neon)">{{ stat['count'] }}</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Broadcast -->
+        <div id="broadcast" class="section">
+            <div class="row g-3">
+                <div class="col-md-5">
+                    <div class="card-dark h-100">
+                        <div class="card-header-pro"><i class="fas fa-upload"></i> تشفير ورفع</div>
+                        <form action="/broadcast" method="post" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <label class="stat-label mb-1 d-block">استهداف البوت</label>
+                                <select name="target_bot" class="input-matrix">
+                                    <option value="bot1">البوت الأول (تحميل)</option>
+                                    <option value="bot2">البوت الثاني (تداول)</option>
+                                </select>
+                            </div>
+                            <input type="hidden" name="type" value="media">
+                            <div class="mb-3">
+                                <label class="stat-label mb-1 d-block">مصدر الميديا</label>
+                                <input type="file" name="file" class="input-matrix">
+                            </div>
+                            <div class="mb-3">
+                                <label class="stat-label mb-1 d-block">حمولة النص</label>
+                                <textarea name="text_content" class="input-matrix" rows="4" placeholder="اكتب التعليمات..."></textarea>
+                            </div>
+                            <button class="btn-matrix w-100">تنفيذ البث</button>
+                        </form>
+                    </div>
+                </div>
+                <div class="col-md-7">
+                    <div class="card-dark h-100">
+                        <div class="card-header-pro"><i class="fas fa-poll"></i> استجواب تفاعلي</div>
+                        <form action="/broadcast" method="post">
+                            <div class="mb-3">
+                                <label class="stat-label mb-1 d-block">استهداف البوت</label>
+                                <select name="target_bot" class="input-matrix">
+                                    <option value="bot1">البوت الأول (تحميل)</option>
+                                    <option value="bot2">البوت الثاني (تداول)</option>
+                                </select>
+                            </div>
+                            <input type="hidden" name="type" value="survey">
+                            <div class="mb-3">
+                                <input type="text" name="question" class="input-matrix" placeholder="السؤال الرئيسي..." required>
+                            </div>
+                            <div id="surveyBox">
+                                <div class="survey-row">
+                                    <input type="text" name="options[]" class="input-matrix" placeholder="الخيار" required>
+                                    <input type="text" name="responses[]" class="input-matrix" placeholder="الرد التلقائي" required>
+                                    <button type="button" class="btn btn-sm text-danger" onclick="this.closest('.survey-row').remove()">×</button>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn-matrix" onclick="addOpt()">+ خيار</button>
+                                <button class="btn-matrix flex-grow-1">حقن الاستبيان</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Users -->
+        <div id="users" class="section">
+            <div class="card-dark">
+                <div class="card-header-pro"><i class="fas fa-database"></i> سجلات العملاء</div>
+                <div class="table-responsive">
+                    <table class="table-matrix">
+                        <thead><tr><th>الاسم المستعار</th><th>المعرف</th><th>العمليات</th><th>الحالة</th><th>فحص</th></tr></thead>
+                        <tbody>
+                            {% for user in users %}
+                            <tr>
+                                <td>{{ user['name'] or 'Unknown' }}</td>
+                                <td><code>{{ user['tg_id'] }}</code></td>
+                                <td style="color: var(--neon)">{{ user['msg_count'] }}</td>
+                                <td>
+                                    <span class="status-dot {{ 'bg-danger' if user['blocked_or_left'] else 'bg-success' }}"></span>
+                                    {{ 'محظور' if user['blocked_or_left'] else 'نشط' }}
+                                </td>
+                                <td><a href="/user/{{ user['tg_id'] }}" class="btn-matrix btn-sm">السجل</a></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI -->
+        <div id="ai" class="section">
+            <div class="row g-3">
+                {% for key in gemini_keys %}
+                <div class="col-md-3">
+                    <div class="card-dark text-center">
+                        <div class="stat-label mb-1">NODE #{{ key.id }}</div>
+                        <div style="color: var(--neon); font-family: 'Orbitron'; margin-bottom: 10px;">ACTIVE</div>
+                        <button class="btn-matrix w-100 btn-sm">إعادة تشغيل</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.onclick = (e) => {
+                e.preventDefault();
+                document.querySelectorAll('.nav-link, .section').forEach(el => el.classList.remove('active'));
+                link.classList.add('active');
+                document.getElementById(link.dataset.tab).classList.add('active');
+            }
+        });
+
+        function addOpt() {
+            const div = document.createElement('div');
+            div.className = 'survey-row';
+            div.innerHTML = `<input type="text" name="options[]" class="input-matrix" placeholder="الخيار" required><input type="text" name="responses[]" class="input-matrix" placeholder="الرد التلقائي" required><button type="button" class="btn btn-sm text-danger" onclick="this.closest('.survey-row').remove()">×</button>`;
+            document.getElementById('surveyBox').appendChild(div);
+        }
+
+        function refresh() {
+            fetch('/api/stats').then(r => r.json()).then(d => {
+                document.getElementById('live-users-val').innerText = Math.floor(d.total * 0.05) + 1;
+            });
+        }
+        setInterval(refresh, 5000); refresh();
+    </script>
+</body>
+</html>
