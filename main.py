@@ -58,6 +58,9 @@ def get_main_menu():
         ],
         [
             InlineKeyboardButton("📞 تواصل معنا", callback_data='contact'),
+        ],
+        [
+            InlineKeyboardButton("✅ هل ظهر الزر؟", callback_data='test_button'),
         ]
     ])
 
@@ -74,7 +77,7 @@ def get_back_menu():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """معالج الأمر /start"""
     user = update.message.from_user
-    
+
     welcome_text = f"""
 🤖 *أهلا وسهلا {user.first_name}!*
 
@@ -90,7 +93,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 اختر من الخيارات أدناه للبدء 👇
     """
-    
+
     await update.message.reply_text(
         welcome_text,
         reply_markup=get_main_menu(),
@@ -106,7 +109,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """معالج الأزرار الرئيسي"""
     query = update.callback_query
     await query.answer()
-    
+
     # الرجوع للقائمة الرئيسية
     if query.data == 'back_to_main':
         await query.edit_message_text(
@@ -115,7 +118,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode='Markdown'
         )
         return START
-    
+
+    # زر الاختبار
+    elif query.data == 'test_button':
+        await query.edit_message_text(
+            text="✅ *نعم ظهر الزر!*\n\nالربط بين GitHub و Replit يعمل بشكل مثالي! 🎉🚀",
+            reply_markup=get_back_menu(),
+            parse_mode='Markdown'
+        )
+        return START
+
     # قائمة الفيديو
     elif query.data == 'video_menu':
         context.user_data['download_mode'] = VIDEO_MODE
@@ -143,7 +155,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode='Markdown'
         )
         return VIDEO_DOWNLOAD
-    
+
     # قائمة الموسيقى
     elif query.data == 'music_menu':
         context.user_data['download_mode'] = MUSIC_MODE
@@ -172,7 +184,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode='Markdown'
         )
         return VIDEO_DOWNLOAD
-    
+
     # تحويل النص إلى صوت
     elif query.data == 'text_speech':
         speech_text = """
@@ -194,7 +206,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode='Markdown'
         )
         return TEXT_SPEECH
-    
+
     # تحويل الصوت إلى نص
     elif query.data == 'audio_text':
         audio_text = """
@@ -215,7 +227,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode='Markdown'
         )
         return AUDIO_TEXT
-    
+
     # الكورسات
     elif query.data == 'courses':
         courses_text = """
@@ -230,7 +242,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
    📖 استراتيجيات التداول المربحة
 
 3️⃣ كورس محمود سعد
-   📖 أساسيات التداول الاحترافي
+   📖 أساسيات التداول ا��احترافي
 
 4️⃣ دورة إيهاب المصري الأولى
    📖 تدريب شامل للمبتدئين
@@ -247,7 +259,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode='Markdown'
         )
         return START
-    
+
     # طرق الدفع
     elif query.data == 'payment':
         payment_text = f"""
@@ -274,7 +286,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode='Markdown'
         )
         return START
-    
+
     # التواصل
     elif query.data == 'contact':
         contact_text = f"""
@@ -314,8 +326,7 @@ https://wa.me/{WHATSAPP_NUMBER.replace('+', '')}
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """معالج الرسائل النصية"""
     user_text = update.message.text
-    
-    # تحميل الفيديو أو الموسيقى - التحقق من الروابط
+
     is_video_link = (
         user_text.lower().startswith('http://') or 
         user_text.lower().startswith('https://') or
@@ -327,31 +338,28 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         'soundcloud' in user_text.lower() or
         'spotify' in user_text.lower()
     )
-    
+
     if is_video_link:
         download_mode = context.user_data.get('download_mode', VIDEO_MODE)
-        
+
         status_msg = await update.message.reply_text(
             "⏳ جاري التحميل السريع...\n\n"
             "🔄 يرجى الانتظار (قد يستغرق حتى دقيقة)",
             parse_mode='Markdown'
         )
-        
+
         try:
-            # إنشاء مجلد التحميل
             os.makedirs("downloads", exist_ok=True)
-            
-            # حذف الملفات القديمة بعناية
+
             try:
                 for old_file in glob.glob("downloads/*"):
                     os.remove(old_file)
             except:
                 pass
-            
+
             output_path = "downloads/video.%(ext)s"
             url_lower = user_text.lower()
-            
-            # الخيارات الأساسية المشتركة
+
             base_command = [
                 'yt-dlp',
                 '--socket-timeout', '45',
@@ -364,8 +372,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 '--no-warnings',
                 '-q',
             ]
-            
-            # معالجة خاصة لـ YouTube
+
             if 'youtube' in url_lower or 'youtu.be' in url_lower:
                 if download_mode == MUSIC_MODE:
                     command = base_command + [
@@ -384,8 +391,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                         '-o', output_path,
                         user_text
                     ]
-            
-            # معالجة خاصة لـ Instagram
+
             elif 'instagram' in url_lower or 'ig' in url_lower:
                 command = base_command + [
                     '-f', 'best[ext=mp4]/best/best[ext=webm]',
@@ -393,8 +399,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     '-o', output_path,
                     user_text
                 ]
-            
-            # معالجة الموسيقى العامة
+
             elif download_mode == MUSIC_MODE:
                 command = base_command + [
                     '-f', 'bestaudio/best',
@@ -404,8 +409,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     '-o', output_path,
                     user_text
                 ]
-            
-            # معالجة الفيديو العامة (TikTok, Facebook, إلخ)
+
             else:
                 command = base_command + [
                     '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio/best[ext=mp4]/best',
@@ -413,29 +417,26 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     '-o', output_path,
                     user_text
                 ]
-            
-            # تنفيذ الأمر
+
             result = subprocess.run(command, capture_output=True, timeout=90, text=True)
-            
+
             if result.returncode == 0:
-                # البحث عن الملف المحمل
                 files = glob.glob("downloads/*")
-                
+
                 if files:
                     file_path = files[0]
                     file_size = os.path.getsize(file_path) / (1024 * 1024)
                     file_name = os.path.basename(file_path)
-                    
+
                     logger.info(f"✅ تم التحميل: {file_name} ({file_size:.1f} MB)")
-                    
+
                     await status_msg.edit_text(
                         f"✅ تم التحميل بنجاح! 🎉\n\n"
                         f"📊 حجم الملف: {file_size:.1f} MB\n"
                         f"🚀 جاري الإرسال...",
                         parse_mode='Markdown'
                     )
-                    
-                    # إرسال الملف
+
                     try:
                         with open(file_path, 'rb') as f:
                             if download_mode == MUSIC_MODE:
@@ -448,13 +449,12 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                                     video=f,
                                     caption="🎬 تم تحميل الفيديو بنجاح! ✅"
                                 )
-                        
+
                         await update.message.reply_text(
-                            "✅ اكتمل الإرسال بنجاح!\n\n"
-                            "هل تريد تحميل ملف آخر؟",
+                            "✅ اكتمل الإرسال بنجاح!\n\nهل تريد تحميل ملف آخر؟",
                             reply_markup=get_back_menu()
                         )
-                        
+
                     except Exception as e:
                         logger.error(f"❌ خطأ في الإرسال: {str(e)}")
                         await update.message.reply_text(
@@ -462,7 +462,6 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                             reply_markup=get_back_menu()
                         )
                 else:
-                    logger.warning("لم يتم العثور على الملف المحمل")
                     await status_msg.edit_text(
                         "❌ لم يتم العثور على الملف\n\nحاول مرة أخرى",
                         reply_markup=get_back_menu()
@@ -474,9 +473,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"❌ فشل التحميل\n\n{error[:200]}",
                     reply_markup=get_back_menu()
                 )
-                
+
         except subprocess.TimeoutExpired:
-            logger.error("انتهت مهلة التحميل")
             await status_msg.edit_text(
                 "❌ انتهت مهلة التحميل\n\nحاول مرة أخرى",
                 reply_markup=get_back_menu()
@@ -487,44 +485,43 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"❌ خطأ: {str(e)[:100]}",
                 reply_markup=get_back_menu()
             )
-        
+
         return VIDEO_DOWNLOAD
-    
-    # تحويل النص إلى صوت
+
     else:
         try:
             status_msg = await update.message.reply_text("⏳ جاري التحويل...")
-            
+
             tts = gTTS(
                 text=user_text,
                 lang='ar',
                 slow=False,
                 tld='com.eg'
             )
-            
+
             audio_path = 'output_voice.mp3'
             tts.save(audio_path)
-            
+
             with open(audio_path, 'rb') as f:
                 await update.message.reply_audio(
                     audio=f,
                     caption="🎤 تم التحويل بنجاح! ✅"
                 )
-            
+
             await update.message.reply_text(
                 "✅ تم التحويل!\n\nاختر خدمة أخرى",
                 reply_markup=get_back_menu()
             )
-            
+
             os.remove(audio_path)
-            
+
         except Exception as e:
             logger.error(f"❌ خطأ في التحويل: {str(e)}")
             await update.message.reply_text(
                 f"❌ خطأ: {str(e)[:100]}",
                 reply_markup=get_back_menu()
             )
-        
+
         return TEXT_SPEECH
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -559,7 +556,7 @@ def main() -> None:
     """بدء البوت"""
     app = Application.builder().token(TOKEN).build()
     app.post_init = set_commands
-    
+
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
@@ -585,9 +582,9 @@ def main() -> None:
         fallbacks=[CommandHandler("start", start)],
         per_message=False,
     )
-    
+
     app.add_handler(conv_handler)
-    
+
     logger.info("✅ البوت الاحترافي جاهز للعمل! 🚀")
     print("\n" + "="*50)
     print("🤖 البوت العربي الاحترافي يعمل الآن")
@@ -596,7 +593,7 @@ def main() -> None:
     print(f"💰 فودافون كاش: {VODAFONE_CASH}")
     print("✅ جميع الميزات جاهزة!")
     print("⏹️  اضغط Ctrl+C للإيقاف\n")
-    
+
     app.run_polling(allowed_updates=['message', 'callback_query'], drop_pending_updates=True)
 
 if __name__ == '__main__':
