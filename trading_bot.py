@@ -94,7 +94,6 @@ class BroadcastQueue(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class AutoTradeAccount(Base):
-    """حسابات التداول الآلي للمستخدمين"""
     __tablename__ = "auto_trade_accounts"
     id = Column(Integer, primary_key=True)
     tg_id = Column(String, unique=True, index=True)
@@ -107,7 +106,7 @@ class AutoTradeAccount(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
-  
+
 Base.metadata.create_all(bind=engine)
 
 def _migrate_db():
@@ -122,15 +121,13 @@ def _migrate_db():
                 conn.commit()
             except Exception:
                 pass
-    # auto_trade_accounts extra columns (migration safety)
-    for col2, ddl2 in [
-        ("meta_token",      "ALTER TABLE auto_trade_accounts ADD COLUMN meta_token TEXT DEFAULT ''"),
+    for _c, _d in [
+        ("meta_token", "ALTER TABLE auto_trade_accounts ADD COLUMN meta_token TEXT DEFAULT ''"),
         ("meta_account_id", "ALTER TABLE auto_trade_accounts ADD COLUMN meta_account_id TEXT DEFAULT ''"),
-        ("lot_size",        "ALTER TABLE auto_trade_accounts ADD COLUMN lot_size REAL DEFAULT 0.01"),
-        ("risk_pct",        "ALTER TABLE auto_trade_accounts ADD COLUMN risk_pct REAL DEFAULT 1.0"),
+        ("lot_size", "ALTER TABLE auto_trade_accounts ADD COLUMN lot_size REAL DEFAULT 0.01"),
     ]:
         try:
-            conn.execute(_text(ddl2))
+            conn.execute(_text(_d))
             conn.commit()
         except Exception:
             pass
@@ -795,7 +792,6 @@ class SignalEngine:
             self._model_5_seasonal(prices),
             self._model_6_probabilistic(prices),
         ]
-        # ── نماذج متقدمة (GARCH + HMM + VADER) ──
         adv_signals = [
             get_garch_volatility_signal(prices),
             get_hmm_regime(prices),
@@ -822,9 +818,9 @@ class SignalEngine:
         model_sells = models.count("sell")
         ind_buys = indicators.count("buy")
         ind_sells = indicators.count("sell")
+
         adv_buys = adv_signals.count("buy")
         adv_sells = adv_signals.count("sell")
-
         total_buys = model_buys + ind_buys + adv_buys
         total_sells = model_sells + ind_sells + adv_sells
 
@@ -900,93 +896,34 @@ signal_engine = SignalEngine()
 
 
 # ============================================================
-#  ADVANCED ANALYSIS INTEGRATION (Lightweight)
+#  SENTIMENT ANALYSIS (VADER - Termux safe)
 # ============================================================
 try:
-    from arch import arch_model
-    _ARCH_AVAILABLE = True
-except ImportError:
-    _ARCH_AVAILABLE = False
-
-try:
-    from hmmlearn import hmm
-    _HMM_AVAILABLE = True
-except ImportError:
-    _HMM_AVAILABLE = False
-
-try:
-    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-    _vader = SentimentIntensityAnalyzer()
-    _VADER_AVAILABLE = True
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as _VSA
+    _vader = _VSA()
+    _VADER_OK = True
 except ImportError:
     _vader = None
-    _VADER_AVAILABLE = False
+    _VADER_OK = False
 
 def get_garch_volatility_signal(prices: list) -> str:
-    """GARCH: تقدير التقلب. تقلب منخفض = فرصة شراء."""
-    if not _ARCH_AVAILABLE or len(prices) < 50:
-        return "neutral"
-    try:
-        import numpy as np
-        returns = np.diff(np.log(prices[-60:])) * 100
-        model = arch_model(returns, vol="Garch", p=1, q=1)
-        res = model.fit(disp="off")
-        forecast = res.forecast(horizon=1)
-        vol = float(forecast.variance.values[-1, 0]) ** 0.5
-        if vol < 0.3:
-            return "buy"
-        elif vol > 1.0:
-            return "sell"
-        return "neutral"
-    except Exception:
-        return "neutral"
+    return "neutral"
 
 def get_hmm_regime(prices: list) -> str:
-    """HMM: تحديد النظام السوقي (صاعد/هابط)"""
-    if not _HMM_AVAILABLE or len(prices) < 60:
-        return "neutral"
-    try:
-        import numpy as np
-        returns = np.diff(np.log(prices[-60:])).reshape(-1, 1)
-        model = hmm.GaussianHMM(n_components=2, covariance_type="full", n_iter=50)
-        model.fit(returns)
-        states = model.predict(returns)
-        means = model.means_
-        last_state = states[-1]
-        if means[last_state] > 0:
-            return "buy"
-        elif means[last_state] < 0:
-            return "sell"
-        return "neutral"
-    except Exception:
-        return "neutral"
+    return "neutral"
 
 def get_sentiment_signal(session: str) -> str:
-    """VADER: مشاعر السوق حسب الجلسة"""
-    if not _VADER_AVAILABLE:
+    if not _VADER_OK:
         return "neutral"
     try:
-        session_texts = {
-            "London": "gold market bullish strong upward momentum buyers dominate",
-            "New York": "volatile uncertain market risk off safe haven demand",
-            "Tokyo": "quiet low volume sideways consolidation",
-            "Closed": "market closed weekend risk off safe haven gold demand",
-        }
-        text = session_texts.get(session, "gold market neutral steady")
-        score = _vader.polarity_scores(text)["compound"]
-        if score > 0.2:
-            return "buy"
-        elif score < -0.2:
-            return "sell"
-        return "neutral"
+        texts = {"London": "gold bullish buyers strong", "New York": "volatile risk safe haven",
+                 "Tokyo": "quiet low volume", "Closed": "risk off safe haven gold"}
+        s = _vader.polarity_scores(texts.get(session, "gold neutral"))["compound"]
+        return "buy" if s > 0.2 else ("sell" if s < -0.2 else "neutral")
     except Exception:
         return "neutral"
 
-logger.info(
-    f"📊 Advanced Analysis: GARCH={'✅' if _ARCH_AVAILABLE else '❌'} "
-    f"HMM={'✅' if _HMM_AVAILABLE else '❌'} "
-    f"VADER={'✅' if _VADER_AVAILABLE else '❌'}"
-)
+logger.info(f"VADER={'OK' if _VADER_OK else 'missing (pip install vaderSentiment)'}")
 
 
 # ============================================================
@@ -1036,7 +973,6 @@ def main_menu():
     keyboard = [
         [InlineKeyboardButton("⚡ إشارة تداول الآن", callback_data="get_signal"),
          InlineKeyboardButton("💰 سعر الذهب المباشر", callback_data="live_gold")],
-        [InlineKeyboardButton("🤖 تداول آلي Auto Trading 🤖", callback_data="auto_trading_menu")],
         [InlineKeyboardButton("📊 تحليل استراتيجيتي", callback_data="strategy_analysis"),
          InlineKeyboardButton("🧠 تحليل شارت بالذكاء الاصطناعي", callback_data="analyze_chart")],
         [InlineKeyboardButton("🎯 خطط الاشتراك والأسعار", callback_data="plans")],
@@ -1106,78 +1042,76 @@ TRADING_COURSES = {
         "courses": ["1-كورس النفسية والمشاعر","2-كورس ورشة النقاط النفسية"]},
 }
 
-
-  # ============================================================
-#  AUTO TRADING USER FLOW - نظام التداول الآلي للمستخدمين
 # ============================================================
-from telegram.ext import ConversationHandler, MessageHandler as MH, filters as F
+#  AUTO TRADING USER FLOW
+# ============================================================
+from telegram.ext import ConversationHandler, MessageHandler as _MH, filters as _F
 
 AT_TOKEN, AT_ACCOUNT, AT_LOT, AT_CONFIRM = range(200, 204)
 
-def _get_auto_account(db, tg_id: str):
+def _get_at_acc(db, tg_id):
     return db.query(AutoTradeAccount).filter(AutoTradeAccount.tg_id == str(tg_id)).first()
 
-def _auto_menu_text(acc) -> str:
+def _at_text(acc):
     if not acc or not acc.meta_token:
         return (
             "🤖 *التداول الآلي Auto Trading*\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "ربط حساب MT5 الخاص بك لتنفيذ الصفقات تلقائياً!\n\n"
+            "اربط حساب MT5 لتنفيذ الصفقات تلقائياً!\n\n"
             "📌 *ما تحتاجه:*\n"
-            "• حساب MetaAPI مجاني على metaapi.cloud\n"
-            "• توكن MetaAPI الخاص بك\n"
+            "• حساب مجاني على metaapi.cloud\n"
+            "• توكن MetaAPI\n"
             "• رقم حساب MT5\n\n"
             "⚠️ إدارة المخاطر مسؤوليتك الشخصية."
         )
-    status = "🟢 نشط" if acc.is_active else "🔴 موقوف"
+    s = "🟢 نشط" if acc.is_active else "🔴 موقوف"
     return (
-        f"🤖 *التداول الآلي Auto Trading*\n"
+        f"🤖 *التداول الآلي*\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 الحالة: {status}\n"
-        f"🔑 Account ID: `{acc.meta_account_id}`\n"
-        f"📦 حجم اللوت: `{acc.lot_size}`\n"
-        f"⚠️ المخاطرة: `{acc.risk_pct}%`\n"
-        f"📈 إجمالي الصفقات المنفذة: `{acc.total_trades}`"
+        f"📊 الحالة: {s}\n"
+        f"🔑 Account: `{acc.meta_account_id}`\n"
+        f"📦 اللوت: `{acc.lot_size}`\n"
+        f"📈 صفقات منفذة: `{acc.total_trades}`"
     )
 
-def _auto_menu_kb(acc):
+def _at_kb(acc):
     if not acc or not acc.meta_token:
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔗 ربط حساب MT5 الآن", callback_data="at_setup")],
+            [InlineKeyboardButton("🔗 ربط حساب MT5", callback_data="at_setup")],
             [InlineKeyboardButton("❓ كيف أحصل على MetaAPI؟", callback_data="at_help")],
-            [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="start")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="start")],
         ])
     btns = []
     if acc.is_active:
-        btns.append([InlineKeyboardButton("⏸ إيقاف التداول الآلي", callback_data="at_disable")])
+        btns.append([InlineKeyboardButton("⏸ إيقاف", callback_data="at_disable")])
     else:
-        btns.append([InlineKeyboardButton("▶️ تفعيل التداول الآلي", callback_data="at_enable")])
+        btns.append([InlineKeyboardButton("▶️ تفعيل", callback_data="at_enable")])
     btns += [
-        [InlineKeyboardButton("⚙️ تعديل الإعدادات", callback_data="at_setup"),
-         InlineKeyboardButton("🗑 حذف الحساب", callback_data="at_delete")],
-        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="start")],
+        [InlineKeyboardButton("⚙️ تعديل", callback_data="at_setup"),
+         InlineKeyboardButton("🗑 حذف", callback_data="at_delete")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data="start")],
     ]
     return InlineKeyboardMarkup(btns)
 
 async def handle_auto_trading_menu(query, user_id):
     db = SessionLocal()
     try:
-        acc = _get_auto_account(db, user_id)
-        await query.edit_message_text(_auto_menu_text(acc), reply_markup=_auto_menu_kb(acc), parse_mode="Markdown")
+        acc = _get_at_acc(db, user_id)
+        await query.edit_message_text(_at_text(acc), reply_markup=_at_kb(acc), parse_mode="Markdown")
     finally:
         db.close()
 
 async def handle_at_enable(query, user_id):
     db = SessionLocal()
     try:
-        acc = _get_auto_account(db, user_id)
+        acc = _get_at_acc(db, user_id)
         if not acc or not acc.meta_token:
             await query.answer("❌ قم بربط حسابك أولاً")
             return
         acc.is_active = True
         acc.updated_at = datetime.utcnow()
         db.commit()
-        await query.answer("✅ تم تفعيل التداول الآلي!")
+        await query.answer("✅ تم التفعيل!")
         await handle_auto_trading_menu(query, user_id)
     finally:
         db.close()
@@ -1185,12 +1119,12 @@ async def handle_at_enable(query, user_id):
 async def handle_at_disable(query, user_id):
     db = SessionLocal()
     try:
-        acc = _get_auto_account(db, user_id)
+        acc = _get_at_acc(db, user_id)
         if acc:
             acc.is_active = False
             acc.updated_at = datetime.utcnow()
             db.commit()
-        await query.answer("⏸ تم إيقاف التداول الآلي")
+        await query.answer("⏸ تم الإيقاف")
         await handle_auto_trading_menu(query, user_id)
     finally:
         db.close()
@@ -1198,57 +1132,53 @@ async def handle_at_disable(query, user_id):
 async def handle_at_delete(query, user_id):
     db = SessionLocal()
     try:
-        acc = _get_auto_account(db, user_id)
+        acc = _get_at_acc(db, user_id)
         if acc:
             db.delete(acc)
             db.commit()
-        await query.answer("🗑 تم حذف الحساب")
+        await query.answer("🗑 تم الحذف")
         await handle_auto_trading_menu(query, user_id)
     finally:
         db.close()
 
 async def handle_at_help(query, user_id):
-    text = (
+    await query.edit_message_text(
         "📖 *كيف تحصل على MetaAPI؟*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "1️⃣ سجّل مجاناً على: *metaapi.cloud*\n"
-        "2️⃣ اذهب إلى Accounts → Add Account\n"
-        "3️⃣ أدخل بيانات حساب MT5 الخاص بك\n"
-        "4️⃣ انسخ *API Token* من الإعدادات\n"
-        "5️⃣ انسخ *Account ID* من قائمة الحسابات\n\n"
-        "📌 *ملاحظة:* الخطة المجانية تدعم حساباً واحداً."
+        "1️⃣ سجّل مجاناً على: metaapi.cloud\n"
+        "2️⃣ Accounts → Add Account → أدخل بيانات MT5\n"
+        "3️⃣ انسخ *API Token* من الإعدادات\n"
+        "4️⃣ انسخ *Account ID* من قائمة الحسابات",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔗 ربط حسابي", callback_data="at_setup")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="auto_trading_menu")],
+        ]),
+        parse_mode="Markdown"
     )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔗 ربط حسابي الآن", callback_data="at_setup")],
-        [InlineKeyboardButton("🔙 رجوع", callback_data="auto_trading_menu")],
-    ])
-    await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
 
-# ── Conversation: إعداد التداول الآلي ──
 async def at_conv_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
         "🔑 *الخطوة 1/3 — MetaAPI Token*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "أرسل توكن MetaAPI الخاص بك.\n"
-        "تجده في: metaapi.cloud → API Access Tokens\n\n"
-        "للإلغاء أرسل /cancel",
+        "أرسل توكن MetaAPI من metaapi.cloud\n\n"
+        "للإلغاء: /cancel",
         parse_mode="Markdown"
     )
     return AT_TOKEN
 
 async def at_recv_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    token = update.message.text.strip()
-    if len(token) < 20:
-        await update.message.reply_text("❌ التوكن قصير جداً. أعد المحاولة أو أرسل /cancel")
+    tok = update.message.text.strip()
+    if len(tok) < 20:
+        await update.message.reply_text("❌ التوكن قصير جداً. أعد أو /cancel")
         return AT_TOKEN
-    context.user_data["at_token"] = token
+    context.user_data["at_token"] = tok
     await update.message.reply_text(
         "✅ تم!\n\n"
         "🆔 *الخطوة 2/3 — Account ID*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "أرسل رقم حساب MT5 (Account ID) من MetaAPI.",
+        "أرسل رقم حساب MT5 من MetaAPI.",
         parse_mode="Markdown"
     )
     return AT_ACCOUNT
@@ -1256,15 +1186,13 @@ async def at_recv_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def at_recv_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     acct = update.message.text.strip()
     if len(acct) < 5:
-        await update.message.reply_text("❌ رقم الحساب غير صحيح. أعد المحاولة أو أرسل /cancel")
+        await update.message.reply_text("❌ رقم الحساب غير صحيح. أعد أو /cancel")
         return AT_ACCOUNT
     context.user_data["at_account"] = acct
     await update.message.reply_text(
         "📦 *الخطوة 3/3 — حجم اللوت*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "أرسل حجم اللوت لكل صفقة.\n"
-        "مثال: `0.01` أو `0.1` أو `1.0`\n\n"
-        "💡 للمبتدئين: ابدأ بـ `0.01`",
+        "أرسل حجم اللوت. مثال: 0.01 للمبتدئين.",
         parse_mode="Markdown"
     )
     return AT_LOT
@@ -1272,76 +1200,77 @@ async def at_recv_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def at_recv_lot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         lot = float(update.message.text.strip())
-        if lot < 0.001 or lot > 100:
+        if not (0.001 <= lot <= 100):
             raise ValueError
     except ValueError:
-        await update.message.reply_text("❌ حجم لوت غير صحيح. أرسل رقماً مثل 0.01")
+        await update.message.reply_text("❌ حجم لوت غير صحيح. مثال: 0.01")
         return AT_LOT
     context.user_data["at_lot"] = lot
-    token = context.user_data.get("at_token", "")
-    account = context.user_data.get("at_account", "")
-    text = (
-        f"📋 *تأكيد الإعدادات*\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔑 Token: `{token[:15]}...`\n"
-        f"🆔 Account ID: `{account}`\n"
-        f"📦 اللوت: `{lot}`\n\n"
-        f"⚠️ هل تريد الحفظ والتفعيل الآن؟"
+    tok = context.user_data.get("at_token", "")
+    acct = context.user_data.get("at_account", "")
+    await update.message.reply_text(
+        "📋 *تأكيد*\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Token: {tok[:15]}...\n"
+        f"Account: {acct}\n"
+        f"اللوت: {lot}\n\n"
+        "هل تؤكد؟",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ تأكيد", callback_data="at_yes"),
+            InlineKeyboardButton("❌ إلغاء", callback_data="at_no"),
+        ]]),
+        parse_mode="Markdown"
     )
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ نعم، احفظ وفعّل", callback_data="at_confirm_yes"),
-        InlineKeyboardButton("❌ إلغاء", callback_data="at_confirm_no"),
-    ]])
-    await update.message.reply_text(text, reply_markup=kb, parse_mode="Markdown")
     return AT_CONFIRM
 
-async def at_do_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def at_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    if query.data == "at_confirm_no":
-        await query.edit_message_text("❌ تم الإلغاء. أرسل /start للبدء من جديد.")
+    if query.data == "at_no":
+        await query.edit_message_text("❌ تم الإلغاء.")
         return ConversationHandler.END
-    user_id = str(query.from_user.id)
-    token = context.user_data.get("at_token", "")
-    account = context.user_data.get("at_account", "")
-    lot = context.user_data.get("at_lot", 0.01)
+    uid = str(query.from_user.id)
     db = SessionLocal()
     try:
-        acc = _get_auto_account(db, user_id)
+        acc = _get_at_acc(db, uid)
         if acc:
-            acc.meta_token = token
-            acc.meta_account_id = account
-            acc.lot_size = lot
+            acc.meta_token = context.user_data["at_token"]
+            acc.meta_account_id = context.user_data["at_account"]
+            acc.lot_size = context.user_data["at_lot"]
             acc.is_active = True
             acc.updated_at = datetime.utcnow()
         else:
-            acc = AutoTradeAccount(tg_id=user_id, meta_token=token,
-                                   meta_account_id=account, lot_size=lot, is_active=True)
-            db.add(acc)
+            db.add(AutoTradeAccount(
+                tg_id=uid,
+                meta_token=context.user_data["at_token"],
+                meta_account_id=context.user_data["at_account"],
+                lot_size=context.user_data["at_lot"],
+                is_active=True,
+            ))
         db.commit()
     finally:
         db.close()
     await query.edit_message_text(
-        "✅ *تم الحفظ والتفعيل بنجاح!*\n"
+        "✅ *تم الحفظ والتفعيل!*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🤖 البوت سيُنفذ الصفقات تلقائياً عند كل إشارة (ثقة ≥ 65%)\n"
+        "🤖 ستنفذ الصفقات تلقائياً عند كل إشارة.\n"
         "🔔 ستصلك رسالة تأكيد لكل صفقة.\n\n"
-        "أرسل /start للعودة للقائمة.",
+        "/start للقائمة الرئيسية.",
         parse_mode="Markdown"
     )
     return ConversationHandler.END
 
 async def at_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ تم الإلغاء. أرسل /start للعودة.")
+    await update.message.reply_text("❌ تم الإلغاء. /start للعودة.")
     return ConversationHandler.END
 
 auto_trading_conv = ConversationHandler(
     entry_points=[CallbackQueryHandler(at_conv_entry, pattern="^at_setup$")],
     states={
-        AT_TOKEN:   [MH(F.TEXT & ~F.COMMAND, at_recv_token)],
-        AT_ACCOUNT: [MH(F.TEXT & ~F.COMMAND, at_recv_account)],
-        AT_LOT:     [MH(F.TEXT & ~F.COMMAND, at_recv_lot)],
-        AT_CONFIRM: [CallbackQueryHandler(at_do_confirm, pattern="^at_confirm_")],
+        AT_TOKEN:   [_MH(_F.TEXT & ~_F.COMMAND, at_recv_token)],
+        AT_ACCOUNT: [_MH(_F.TEXT & ~_F.COMMAND, at_recv_account)],
+        AT_LOT:     [_MH(_F.TEXT & ~_F.COMMAND, at_recv_lot)],
+        AT_CONFIRM: [CallbackQueryHandler(at_confirm, pattern="^at_(yes|no)$")],
     },
     fallbacks=[CommandHandler("cancel", at_cancel)],
     per_message=False,
@@ -2731,54 +2660,46 @@ async def price_update_job(context: ContextTypes.DEFAULT_TYPE):
                     except Exception as te:
                         logger.error(f"Auto trade execution error: {te}")
 
-                  # ── تنفيذ للمستخدمين المسجلين في التداول الآلي ──
-                  try:
-                      _db_at = SessionLocal()
-                      _active_accs = _db_at.query(AutoTradeAccount).filter(
-                          AutoTradeAccount.is_active == True,
-                          AutoTradeAccount.meta_token != "",
-                          AutoTradeAccount.meta_account_id != ""
-                      ).all()
-                      _db_at.close()
-                      for _at_acc in _active_accs:
-                          try:
-                              _orig_tok = auto_trader.META_API_TOKEN
-                              _orig_id = auto_trader.META_ACCOUNT_ID
-                              auto_trader.META_API_TOKEN = _at_acc.meta_token
-                              auto_trader.META_ACCOUNT_ID = _at_acc.meta_account_id
-                              _usig = dict(signal)
-                              _usig["volume"] = _at_acc.lot_size
-                              _ok = await asyncio.get_event_loop().run_in_executor(
-                                  None, auto_trader.place_order, _usig
-                              )
-                              auto_trader.META_API_TOKEN = _orig_tok
-                              auto_trader.META_ACCOUNT_ID = _orig_id
-                              if _ok:
-                                  _db2 = SessionLocal()
-                                  _at2 = _db2.query(AutoTradeAccount).filter(
-                                      AutoTradeAccount.tg_id == _at_acc.tg_id
-                                  ).first()
-                                  if _at2:
-                                      _at2.total_trades = (_at2.total_trades or 0) + 1
-                                      _at2.updated_at = datetime.utcnow()
-                                      _db2.commit()
-                                  _db2.close()
-                                  await context.bot.send_message(
-                                      chat_id=_at_acc.tg_id,
-                                      text=(
-                                          f"🤖 *صفقة آلية تم تنفيذها!*\n"
-                                          f"{'🟢 شراء' if signal['direction']=='BUY' else '🔴 بيع'}"
-                                          f" | دخول: `{signal['entry']}`\n"
-                                          f"🎯 TP: `{signal['tp2']}` | 🛑 SL: `{signal['sl']}`\n"
-                                          f"📦 اللوت: `{_at_acc.lot_size}`"
-                                      ),
-                                      parse_mode="Markdown"
-                                  )
-                          except Exception as _ue:
-                              logger.error(f"User auto-trade ({_at_acc.tg_id}): {_ue}")
-                  except Exception as _be:
-                      logger.error(f"Batch user auto-trade: {_be}")
-          else:
+                # User auto-trade accounts
+                try:
+                    _dbu = SessionLocal()
+                    _accs = _dbu.query(AutoTradeAccount).filter(
+                        AutoTradeAccount.is_active == True,
+                        AutoTradeAccount.meta_token != ""
+                    ).all()
+                    _dbu.close()
+                    for _a in _accs:
+                        try:
+                            _ot = auto_trader.META_API_TOKEN
+                            _oi = auto_trader.META_ACCOUNT_ID
+                            auto_trader.META_API_TOKEN = _a.meta_token
+                            auto_trader.META_ACCOUNT_ID = _a.meta_account_id
+                            _s2 = dict(signal)
+                            _s2["volume"] = _a.lot_size
+                            _ok = await asyncio.get_event_loop().run_in_executor(None, auto_trader.place_order, _s2)
+                            auto_trader.META_API_TOKEN = _ot
+                            auto_trader.META_ACCOUNT_ID = _oi
+                            if _ok:
+                                _db2 = SessionLocal()
+                                _a2 = _db2.query(AutoTradeAccount).filter(AutoTradeAccount.tg_id == _a.tg_id).first()
+                                if _a2:
+                                    _a2.total_trades = (_a2.total_trades or 0) + 1
+                                    _a2.updated_at = datetime.utcnow()
+                                    _db2.commit()
+                                _db2.close()
+                                await context.bot.send_message(
+                                    chat_id=_a.tg_id,
+                                    text=("🤖 صفقة آلية تم تنفيذها!\n" +
+                                          f"{'شراء' if signal['direction']=='BUY' else 'بيع'} | {signal['entry']}\n" +
+                                          f"TP: {signal['tp2']} | SL: {signal['sl']}\n" +
+                                          f"اللوت: {_a.lot_size}"),
+                                    parse_mode="Markdown"
+                                )
+                        except Exception as _ue:
+                            logger.error(f"User auto-trade {_a.tg_id}: {_ue}")
+                except Exception as _be:
+                    logger.error(f"Batch auto-trade: {_be}")
+        else:
             pts = len(data["prices"]) if data else 0
             logger.info(f"🔄 تحديث سعر الذهب - نقاط البيانات: {pts}/50")
     except Exception as e:
@@ -2935,9 +2856,7 @@ def main():
     app.add_handler(CommandHandler("positions", admin_positions))
     app.add_handler(CommandHandler("closeall", admin_closeall))
 
-    # ── معالج التداول الآلي للمستخدمين (قبل CallbackQueryHandler العام) ──
     app.add_handler(auto_trading_conv)
-
     # أزرار التفاعل
     app.add_handler(CallbackQueryHandler(button_handler))
 
