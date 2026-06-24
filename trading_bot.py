@@ -899,96 +899,96 @@ class SignalEngine:
 signal_engine = SignalEngine()
 
 
-  # ============================================================
-  #  ADVANCED ANALYSIS INTEGRATION (Lightweight)
-  # ============================================================
-  try:
-      from arch import arch_model
-      _ARCH_AVAILABLE = True
-  except ImportError:
-      _ARCH_AVAILABLE = False
+# ============================================================
+#  ADVANCED ANALYSIS INTEGRATION (Lightweight)
+# ============================================================
+try:
+    from arch import arch_model
+    _ARCH_AVAILABLE = True
+except ImportError:
+    _ARCH_AVAILABLE = False
 
-  try:
-      from hmmlearn import hmm
-      _HMM_AVAILABLE = True
-  except ImportError:
-      _HMM_AVAILABLE = False
+try:
+    from hmmlearn import hmm
+    _HMM_AVAILABLE = True
+except ImportError:
+    _HMM_AVAILABLE = False
 
-  try:
-      from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-      _vader = SentimentIntensityAnalyzer()
-      _VADER_AVAILABLE = True
-  except ImportError:
-      _vader = None
-      _VADER_AVAILABLE = False
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    _vader = SentimentIntensityAnalyzer()
+    _VADER_AVAILABLE = True
+except ImportError:
+    _vader = None
+    _VADER_AVAILABLE = False
 
-  def get_garch_volatility_signal(prices: list) -> str:
-      """GARCH: تقدير التقلب. تقلب منخفض = فرصة شراء."""
-      if not _ARCH_AVAILABLE or len(prices) < 50:
-          return "neutral"
-      try:
-          import numpy as np
-          returns = np.diff(np.log(prices[-60:])) * 100
-          model = arch_model(returns, vol="Garch", p=1, q=1)
-          res = model.fit(disp="off")
-          forecast = res.forecast(horizon=1)
-          vol = float(forecast.variance.values[-1, 0]) ** 0.5
-          if vol < 0.3:
-              return "buy"
-          elif vol > 1.0:
-              return "sell"
-          return "neutral"
-      except Exception:
-          return "neutral"
+def get_garch_volatility_signal(prices: list) -> str:
+    """GARCH: تقدير التقلب. تقلب منخفض = فرصة شراء."""
+    if not _ARCH_AVAILABLE or len(prices) < 50:
+        return "neutral"
+    try:
+        import numpy as np
+        returns = np.diff(np.log(prices[-60:])) * 100
+        model = arch_model(returns, vol="Garch", p=1, q=1)
+        res = model.fit(disp="off")
+        forecast = res.forecast(horizon=1)
+        vol = float(forecast.variance.values[-1, 0]) ** 0.5
+        if vol < 0.3:
+            return "buy"
+        elif vol > 1.0:
+            return "sell"
+        return "neutral"
+    except Exception:
+        return "neutral"
 
-  def get_hmm_regime(prices: list) -> str:
-      """HMM: تحديد النظام السوقي (صاعد/هابط)"""
-      if not _HMM_AVAILABLE or len(prices) < 60:
-          return "neutral"
-      try:
-          import numpy as np
-          returns = np.diff(np.log(prices[-60:])).reshape(-1, 1)
-          model = hmm.GaussianHMM(n_components=2, covariance_type="full", n_iter=50)
-          model.fit(returns)
-          states = model.predict(returns)
-          means = model.means_
-          last_state = states[-1]
-          if means[last_state] > 0:
-              return "buy"
-          elif means[last_state] < 0:
-              return "sell"
-          return "neutral"
-      except Exception:
-          return "neutral"
+def get_hmm_regime(prices: list) -> str:
+    """HMM: تحديد النظام السوقي (صاعد/هابط)"""
+    if not _HMM_AVAILABLE or len(prices) < 60:
+        return "neutral"
+    try:
+        import numpy as np
+        returns = np.diff(np.log(prices[-60:])).reshape(-1, 1)
+        model = hmm.GaussianHMM(n_components=2, covariance_type="full", n_iter=50)
+        model.fit(returns)
+        states = model.predict(returns)
+        means = model.means_
+        last_state = states[-1]
+        if means[last_state] > 0:
+            return "buy"
+        elif means[last_state] < 0:
+            return "sell"
+        return "neutral"
+    except Exception:
+        return "neutral"
 
-  def get_sentiment_signal(session: str) -> str:
-      """VADER: مشاعر السوق حسب الجلسة"""
-      if not _VADER_AVAILABLE:
-          return "neutral"
-      try:
-          session_texts = {
-              "London": "gold market bullish strong upward momentum buyers dominate",
-              "New York": "volatile uncertain market risk off safe haven demand",
-              "Tokyo": "quiet low volume sideways consolidation",
-              "Closed": "market closed weekend risk off safe haven gold demand",
-          }
-          text = session_texts.get(session, "gold market neutral steady")
-          score = _vader.polarity_scores(text)["compound"]
-          if score > 0.2:
-              return "buy"
-          elif score < -0.2:
-              return "sell"
-          return "neutral"
-      except Exception:
-          return "neutral"
+def get_sentiment_signal(session: str) -> str:
+    """VADER: مشاعر السوق حسب الجلسة"""
+    if not _VADER_AVAILABLE:
+        return "neutral"
+    try:
+        session_texts = {
+            "London": "gold market bullish strong upward momentum buyers dominate",
+            "New York": "volatile uncertain market risk off safe haven demand",
+            "Tokyo": "quiet low volume sideways consolidation",
+            "Closed": "market closed weekend risk off safe haven gold demand",
+        }
+        text = session_texts.get(session, "gold market neutral steady")
+        score = _vader.polarity_scores(text)["compound"]
+        if score > 0.2:
+            return "buy"
+        elif score < -0.2:
+            return "sell"
+        return "neutral"
+    except Exception:
+        return "neutral"
 
-  logger.info(
-      f"📊 Advanced Analysis: GARCH={'✅' if _ARCH_AVAILABLE else '❌'} "
-      f"HMM={'✅' if _HMM_AVAILABLE else '❌'} "
-      f"VADER={'✅' if _VADER_AVAILABLE else '❌'}"
-  )
+logger.info(
+    f"📊 Advanced Analysis: GARCH={'✅' if _ARCH_AVAILABLE else '❌'} "
+    f"HMM={'✅' if _HMM_AVAILABLE else '❌'} "
+    f"VADER={'✅' if _VADER_AVAILABLE else '❌'}"
+)
 
-  
+
 # ============================================================
 #  MESSAGE FORMATTING
 # ============================================================
