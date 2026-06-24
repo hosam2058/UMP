@@ -986,6 +986,49 @@ def main_menu():
     ]
     return InlineKeyboardMarkup(keyboard)
 
+def vip_menu():
+    """قائمة لأعضاء VIP — ميزات كاملة"""
+    keyboard = [
+        [InlineKeyboardButton("⚡ إشارة تداول الآن", callback_data="get_signal"),
+         InlineKeyboardButton("💰 سعر الذهب المباشر", callback_data="live_gold")],
+        [InlineKeyboardButton("📊 تحليل استراتيجيتي", callback_data="strategy_analysis"),
+         InlineKeyboardButton("🧠 تحليل شارت بالذكاء الاصطناعي", callback_data="analyze_chart")],
+        [InlineKeyboardButton("🤖 تداول آلي Auto Trading 🤖", callback_data="auto_trading_menu")],
+        [InlineKeyboardButton("🏆 نتائج التوصيات", callback_data="results_menu"),
+         InlineKeyboardButton("👤 حسابي", callback_data="my_account")],
+        [InlineKeyboardButton("🌐 زيارة الموقع", url=WEBSITE_URL),
+         InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
+        [InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def trial_menu():
+    """قائمة لمستخدمي التجربة المجانية"""
+    keyboard = [
+        [InlineKeyboardButton("⚡ إشارة تداول (تجربة)", callback_data="get_signal"),
+         InlineKeyboardButton("💰 سعر الذهب المباشر", callback_data="live_gold")],
+        [InlineKeyboardButton("💎 اشترك VIP — إشارات كاملة", callback_data="plans")],
+        [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
+         InlineKeyboardButton("👤 حسابي", callback_data="my_account")],
+        [InlineKeyboardButton("🎓 مكتبة الكورسات", callback_data="courses_main"),
+         InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
+        [InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def expired_menu():
+    """قائمة لمنتهي التجربة"""
+    keyboard = [
+        [InlineKeyboardButton("💎 اشترك VIP الآن 🔥", callback_data="plans")],
+        [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
+         InlineKeyboardButton("💰 سعر الذهب المباشر", callback_data="live_gold")],
+        [InlineKeyboardButton("👤 حسابي", callback_data="my_account"),
+         InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
+        [InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def back_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ تفعيل VIP", url=WHATSAPP_LINK)],
@@ -1322,10 +1365,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {trial_line}{new_badge}
 ⚠️ _التداول محفوف بالمخاطر. تحمل مسؤوليتك._"""
 
+    if u.is_vip:
+        _kb = vip_menu()
+    elif sigs_left > 0:
+        _kb = trial_menu()
+    else:
+        _kb = expired_menu()
+
     if update.message:
-        await update.message.reply_text(welcome, reply_markup=main_menu(), parse_mode="Markdown")
+        await update.message.reply_text(welcome, reply_markup=_kb, parse_mode="Markdown")
     elif update.callback_query:
-        await update.callback_query.edit_message_text(welcome, reply_markup=main_menu(), parse_mode="Markdown")
+        await update.callback_query.edit_message_text(welcome, reply_markup=_kb, parse_mode="Markdown")
 
 
 async def handle_live_gold(query):
@@ -1936,31 +1986,86 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
         await query.edit_message_text("🎯 *اختر خطة الاشتراك المناسبة:*\n⚠️ الكورسات مدفوعة بشكل منفصل", reply_markup=markup, parse_mode="Markdown")
     elif data == "payment_methods":
-        msg = """💳 *طرق الدفع المتاحة*
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-🔵 *بي باب (BePay)*
-تحويل إلكتروني سريع وآمن
-
-🟡 *بابني (Babni)*
-محفظة رقمية مباشرة
-
-🔴 *فودافون كاش*
-تحويل فوري على الرقم المسجل
-
-💳 *فييا كارد (Visa Card)*
-دفع ببطاقة الفيزا الدولية
-
-━━━━━━━━━━━━━━━━━━━━━━━━
-📲 *بعد الدفع:*
-تواصل معنا عبر واتساب وأرسل إيصال الدفع
-سيتم تفعيل حسابك خلال دقائق ✅"""
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💬 تواصل واتساب بعد الدفع", url=WHATSAPP_LINK)],
+            [InlineKeyboardButton("🟡 Binance Pay", callback_data="pay_binance")],
+            [InlineKeyboardButton("💳 MasterCard", callback_data="pay_mastercard")],
+            [InlineKeyboardButton("🔵 PayPal", callback_data="pay_paypal")],
+            [InlineKeyboardButton("🔴 فودافون كاش", callback_data="pay_vodafone")],
             [InlineKeyboardButton("🎯 خطط الاشتراك", callback_data="plans"),
-             InlineKeyboardButton("🔙 العودة", callback_data="start")]
+             InlineKeyboardButton("🔙 العودة", callback_data="start")],
         ])
-        await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
+        await query.edit_message_text(
+            "💳 *طرق الدفع المتاحة*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "اختر طريقة الدفع التي تناسبك.\n"
+            "📲 جميع عمليات الدفع تتم مع الدعم عبر واتساب.",
+            reply_markup=markup, parse_mode="Markdown"
+        )
+    elif data in ("pay_binance", "pay_mastercard", "pay_paypal", "pay_vodafone"):
+        names = {
+            "pay_binance":    ("🟡 Binance Pay",   "Binance Pay"),
+            "pay_mastercard": ("💳 MasterCard",     "MasterCard"),
+            "pay_paypal":     ("🔵 PayPal",         "PayPal"),
+            "pay_vodafone":   ("🔴 فودافون كاش",    "فودافون كاش"),
+        }
+        icon, method = names[data]
+        await query.edit_message_text(
+            icon + " *الدفع عبر " + method + "*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "💬 الدفع يتم بشكل مباشر مع فريق الدعم عبر *واتساب*:\n\n"
+            "1️⃣ اضغط الزر أدناه للتواصل مع الدعم\n"
+            "2️⃣ أخبرهم أنك تريد الدفع عبر *" + method + "*\n"
+            "3️⃣ سيرسلون لك تفاصيل الدفع الكاملة\n"
+            "4️⃣ بعد الدفع أرسل إيصال التحويل\n"
+            "5️⃣ يتم تفعيل VIP خلال دقائق ✅\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "⏱ وقت التفعيل: *دقائق فقط* بعد تأكيد الدفع",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💬 تواصل واتساب الآن 🚀", url=WHATSAPP_LINK)],
+                [InlineKeyboardButton("🔙 طرق الدفع", callback_data="payment_methods"),
+                 InlineKeyboardButton("🏠 القائمة", callback_data="start")],
+            ]),
+            parse_mode="Markdown"
+        )
+
+    elif data == "my_account":
+        _db = SessionLocal()
+        _u = _db.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
+        _db.close()
+        if not _u:
+            await query.answer("❌ حدث خطأ")
+            return
+        _sigs_left = trial_remaining_signals(_u)
+        if _u.is_vip:
+            _status = "💎 VIP مفعّل — إشارات غير محدودة"
+            _btn = InlineKeyboardButton("📞 تواصل مع الدعم", url=WHATSAPP_LINK)
+        elif _sigs_left > 0:
+            _status = "🎁 تجربة مجانية — " + str(_sigs_left) + " إشارة متبقية"
+            _btn = InlineKeyboardButton("💎 اشترك VIP الآن", callback_data="plans")
+        else:
+            _status = "⏰ انتهت التجربة المجانية"
+            _btn = InlineKeyboardButton("💎 اشترك VIP الآن 🔥", callback_data="plans")
+        _sigs_req = _u.signals_requested or 0
+        _joined = _u.created_at.strftime("%Y-%m-%d") if _u.created_at else "—"
+        _msg = (
+            "👤 *حسابي*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "📛 الاسم: " + (_u.first_name or "غير محدد") + "\n"
+            "🆔 ID: `" + str(user_id) + "`\n"
+            "📅 تاريخ الانضمام: `" + _joined + "`\n"
+            "📊 الحالة: " + _status + "\n"
+            "⚡ إشارات مطلوبة: `" + str(_sigs_req) + "`\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
+        await query.edit_message_text(
+            _msg,
+            reply_markup=InlineKeyboardMarkup([
+                [_btn],
+                [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="start")],
+            ]),
+            parse_mode="Markdown"
+        )
+
     elif data == "admin_marketing":
         msg = """💼 *الجانب الإداري والتسويقي*
 ━━━━━━━━━━━━━━━━━━━━━━━━
