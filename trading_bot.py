@@ -93,19 +93,19 @@ class BroadcastQueue(Base):
     status = Column(String, default='pending')
     created_at = Column(DateTime, default=datetime.utcnow)
 
-  class AutoTradeAccount(Base):
-      """حسابات التداول الآلي للمستخدمين"""
-      __tablename__ = "auto_trade_accounts"
-      id = Column(Integer, primary_key=True)
-      tg_id = Column(String, unique=True, index=True)
-      meta_token = Column(String, default="")
-      meta_account_id = Column(String, default="")
-      is_active = Column(Boolean, default=False)
-      lot_size = Column(Float, default=0.01)
-      risk_pct = Column(Float, default=1.0)
-      total_trades = Column(Integer, default=0)
-      created_at = Column(DateTime, default=datetime.utcnow)
-      updated_at = Column(DateTime, default=datetime.utcnow)
+class AutoTradeAccount(Base):
+    """حسابات التداول الآلي للمستخدمين"""
+    __tablename__ = "auto_trade_accounts"
+    id = Column(Integer, primary_key=True)
+    tg_id = Column(String, unique=True, index=True)
+    meta_token = Column(String, default="")
+    meta_account_id = Column(String, default="")
+    is_active = Column(Boolean, default=False)
+    lot_size = Column(Float, default=0.01)
+    risk_pct = Column(Float, default=1.0)
+    total_trades = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
   
 Base.metadata.create_all(bind=engine)
