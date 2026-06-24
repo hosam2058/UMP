@@ -976,6 +976,7 @@ def main_menu():
         [InlineKeyboardButton("📊 تحليل استراتيجيتي", callback_data="strategy_analysis"),
          InlineKeyboardButton("🧠 تحليل شارت بالذكاء الاصطناعي", callback_data="analyze_chart")],
         [InlineKeyboardButton("🎯 خطط الاشتراك والأسعار", callback_data="plans")],
+        [InlineKeyboardButton("🤖 تداول آلي Auto Trading 🤖", callback_data="auto_trading_menu")],
         [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
          InlineKeyboardButton("🎓 مكتبة الكورسات", callback_data="courses_main")],
         [InlineKeyboardButton("🏆 نتائج التوصيات", callback_data="results_menu")],
