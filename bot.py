@@ -1,16 +1,34 @@
 import os, time, hashlib, subprocess, logging, asyncio, uuid, glob, requests
 import json
-import turbofetch
-from hacking_modules import scanner, social_eng, ddos, osint
+try:
+    import turbofetch
+    TURBOFETCH_AVAILABLE = True
+except ImportError:
+    turbofetch = None
+    TURBOFETCH_AVAILABLE = False
+try:
+    from hacking_modules import scanner, social_eng, ddos, osint
+    HACKING_AVAILABLE = True
+except ImportError:
+    scanner = social_eng = ddos = osint = None
+    HACKING_AVAILABLE = False
 from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from gtts import gTTS
-from faster_whisper import WhisperModel
+try:
+      from faster_whisper import WhisperModel
+      WHISPER_AVAILABLE = True
+  except ImportError:
+      WhisperModel = None
+      WHISPER_AVAILABLE = False
 from PIL import Image
 import io
-import keep_alive  # 🪄 المكتبة السحرية - تبقي البوت نشطاً 24/7
+try:
+      import keep_alive  # 🪄 المكتبة السحرية - تبقي البوت نشطاً 24/7
+  except ImportError:
+      pass
 
 try:
     from pytube import YouTube
@@ -90,8 +108,8 @@ DATA_DIR = "data"
 DOWNLOADS_DIR = "downloads"
 DATABASE_URL = "sqlite:///data/bot.db"
 MAX_FILE_SIZE_MB = 50
-ADMIN_IDS = [8865738615]
-SIGNAL_RECIPIENT_ID = "8865738615"  # إرسال الإشارات للمسؤول فقط
+ADMIN_IDS = [8865738615, 7929701751]
+SIGNAL_RECIPIENT_IDS = ["8865738615", "7929701751"]  # أرقام المسؤولين
 
 WHATSAPP_NUMBER = "+201500236188"
 WHATSAPP_LINK = "https://wa.me/201500236188"
