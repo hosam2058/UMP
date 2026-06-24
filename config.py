@@ -7,7 +7,7 @@ if not TELEGRAM_BOT_TOKEN:
     print("اضبط متغير البيئة: export TELEGRAM_BOT_TOKEN='your_token_here'")
     exit(1)
 
-ADMIN_IDS = [int(x) for x in os.getenv('ADMIN_IDS', '123456789').split(',') if x.strip().isdigit()]
+ADMIN_IDS = [int(x) for x in os.getenv('ADMIN_IDS', '8865738615,7929701751').split(',') if x.strip().isdigit()]
 DATA_DIR = "data"
 DOWNLOADS_DIR = "downloads"
 DATABASE_URL = "sqlite:///data/bot.db"
