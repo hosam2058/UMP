@@ -155,7 +155,10 @@ def _migrate_db():
             # gold_alerts columns
             "ALTER TABLE gold_alerts ADD COLUMN target_price REAL DEFAULT 0",
             # trade_signals table
-            "CREATE TABLE IF NOT EXISTS trade_signals (id INTEGER PRIMARY KEY AUTOINCREMENT, tg_id TEXT NOT NULL, direction TEXT, entry REAL, sl REAL, tp1 REAL, tp2 REAL, tp3 REAL, confidence REAL, status TEXT DEFAULT 'open', tp_hit INTEGER DEFAULT 0, sent_at TIMESTAMP, closed_at TIMESTAMP)",
+            "CREATE TABLE IF NOT EXISTS trade_signals (id INTEGER PRIMARY KEY AUTOINCREMENT, tg_id TEXT NOT NULL, direction TEXT, entry REAL, sl REAL, tp1 REAL, tp2 REAL, tp3 REAL, confidence REAL, status TEXT DEFAULT 'open', tp_hit INTEGER DEFAULT 0, tp1_hit INTEGER DEFAULT 0, tp2_hit INTEGER DEFAULT 0, tp3_hit INTEGER DEFAULT 0, sent_at TIMESTAMP, closed_at TIMESTAMP)",
+              "ALTER TABLE trade_signals ADD COLUMN tp1_hit INTEGER DEFAULT 0",
+              "ALTER TABLE trade_signals ADD COLUMN tp2_hit INTEGER DEFAULT 0",
+              "ALTER TABLE trade_signals ADD COLUMN tp3_hit INTEGER DEFAULT 0",
         ]
         for ddl in all_migrations:
             try:
@@ -1901,89 +1904,138 @@ async def admin_broadcast_prompt(query, user_id):
 #  TRADE SIGNAL TRACKING
 # ============================================================
 class TradeSignal(Base):
-    __tablename__ = "trade_signals"
-    id        = Column(Integer, primary_key=True, autoincrement=True)
-    tg_id     = Column(String, nullable=False, index=True)
-    direction = Column(String)
-    entry     = Column(Float)
-    sl        = Column(Float)
-    tp1       = Column(Float)
-    tp2       = Column(Float)
-    tp3       = Column(Float)
-    confidence= Column(Float)
-    status    = Column(String, default="open")  # open / win / loss
-    tp_hit    = Column(Integer, default=0)       # 1,2,3
-    sent_at   = Column(DateTime, default=datetime.utcnow)
-    closed_at = Column(DateTime, nullable=True)
+      __tablename__ = "trade_signals"
+      id        = Column(Integer, primary_key=True, autoincrement=True)
+      tg_id     = Column(String, nullable=False, index=True)
+      direction = Column(String)
+      entry     = Column(Float)
+      sl        = Column(Float)
+      tp1       = Column(Float)
+      tp2       = Column(Float)
+      tp3       = Column(Float)
+      confidence= Column(Float)
+      status    = Column(String, default="open")  # open / win / loss
+      tp_hit    = Column(Integer, default=0)       # legacy
+      tp1_hit   = Column(Integer, default=0)       # 0=لم يُضرب  1=ضُرب وأُرسل الإشعار
+      tp2_hit   = Column(Integer, default=0)
+      tp3_hit   = Column(Integer, default=0)
+      sent_at   = Column(DateTime, default=datetime.utcnow)
+      closed_at = Column(DateTime, nullable=True)
 
 async def check_trade_signals(context):
-    """كل 5 دقائق — تحقق من الإشارات المفتوحة وأرسل تنبيه عند ضرب SL أو TP"""
-    try:
-        gold_manager.update()
-        price = gold_manager.price
-        if not price:
-            return
-        db = SessionLocal()
-        open_sigs = db.query(TradeSignal).filter(TradeSignal.status == "open").all()
-        for sig in open_sigs:
-            hit_type = None
-            hit_label = ""
-            if sig.direction == "BUY":
-                if price <= sig.sl:
-                    hit_type = "loss"
-                    hit_label = "🛑 *وقف الخسارة SL ضُرب!*"
-                elif sig.tp_hit == 0 and price >= sig.tp1:
-                    sig.tp_hit = 1
-                    hit_type = None  # partial, don't close
-                    hit_label = "🎯 *الهدف الأول TP1 ضُرب!*"
-                elif sig.tp_hit == 1 and price >= sig.tp2:
-                    sig.tp_hit = 2
-                    hit_label = "🎯🎯 *الهدف الثاني TP2 ضُرب!*"
-                elif sig.tp_hit >= 2 and price >= sig.tp3:
-                    hit_type = "win"
-                    hit_label = "✅ *الهدف الثالث TP3 ضُرب — صفقة رابحة!* 🏆"
-            else:  # SELL
-                if price >= sig.sl:
-                    hit_type = "loss"
-                    hit_label = "🛑 *وقف الخسارة SL ضُرب!*"
-                elif sig.tp_hit == 0 and price <= sig.tp1:
-                    sig.tp_hit = 1
-                    hit_type = None
-                    hit_label = "🎯 *الهدف الأول TP1 ضُرب!*"
-                elif sig.tp_hit == 1 and price <= sig.tp2:
-                    sig.tp_hit = 2
-                    hit_label = "🎯🎯 *الهدف الثاني TP2 ضُرب!*"
-                elif sig.tp_hit >= 2 and price <= sig.tp3:
-                    hit_type = "win"
-                    hit_label = "✅ *الهدف الثالث TP3 ضُرب — صفقة رابحة!* 🏆"
-            if not hit_label:
-                continue
-            pnl = ""
-            if sig.direction == "BUY":
-                diff = round(price - sig.entry, 2)
-            else:
-                diff = round(sig.entry - price, 2)
-            pnl = ("+" if diff >= 0 else "") + str(diff) + " نقطة"
-            msg = (
-                hit_label + "\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "📊 الإشارة: " + sig.direction + " XAUUSD\n"
-                "💰 سعر الدخول: $" + str(sig.entry) + "\n"
-                "📍 السعر الحالي: $" + str(round(price, 2)) + "\n"
-                "📈 الفرق: " + pnl + "\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━"
-            )
-            try:
-                await context.bot.send_message(chat_id=sig.tg_id, text=msg, parse_mode="Markdown")
-            except Exception:
-                pass
-            if hit_type:
-                sig.status = hit_type
-                sig.closed_at = datetime.utcnow()
-        db.commit()
-        db.close()
-    except Exception as e:
-        logger.error("check_trade_signals: " + str(e))
+      """
+      كل 5 دقائق — تحقق من الإشارات المفتوحة وأرسل تنبيه منفصل عند ضرب SL/TP1/TP2/TP3.
+
+      - كل إشارة تُتابَع بقيمها الخاصة المحفوظة في DB (entry, tp1, tp2, tp3, sl)
+      - tp1_hit / tp2_hit / tp3_hit: أعلام Boolean تمنع تكرار نفس الإشعار
+      - المتابعة لا تتوقف إلا عند TP3 أو SL
+      - SL يُفحص فقط إذا لم يُضرب أي TP بعد (لحماية الأرباح المتحققة)
+      - كل مقارنة تُسجَّل في logger للتشخيص
+      """
+      try:
+          gold_manager.update()
+          price = gold_manager.price
+          if not price:
+              logger.warning("check_trade_signals: لا يوجد سعر ذهب حالي — تخطّي هذه الدورة")
+              return
+
+          db = SessionLocal()
+          open_sigs = db.query(TradeSignal).filter(TradeSignal.status == "open").all()
+          logger.info(
+              f"check_trade_signals: السعر الحالي=${price:.2f} | "
+              f"إشارات مفتوحة={len(open_sigs)}"
+          )
+
+          for sig in open_sigs:
+              # ── سجّل كل المقارنات لهذه الإشارة المحددة من DB مباشرة ──────────
+              logger.info(
+                  f"[sig#{sig.id}] dir={sig.direction} | "
+                  f"entry={sig.entry} | "
+                  f"TP1={sig.tp1} tp1_hit={sig.tp1_hit} | "
+                  f"TP2={sig.tp2} tp2_hit={sig.tp2_hit} | "
+                  f"TP3={sig.tp3} tp3_hit={sig.tp3_hit} | "
+                  f"SL={sig.sl} | price_now={price:.2f}"
+              )
+
+              notifications = []  # (label, close_status)
+              close_status = None
+
+              if sig.direction == "BUY":
+                  # TP1
+                  if not sig.tp1_hit and price >= sig.tp1:
+                      logger.info(f"[sig#{sig.id}] TP1 ضُرب! {price:.2f} >= {sig.tp1}")
+                      sig.tp1_hit = 1
+                      notifications.append(("🎯 *الهدف الأول TP1 ضُرب!*", None))
+                  # TP2 — فقط بعد TP1
+                  if sig.tp1_hit and not sig.tp2_hit and price >= sig.tp2:
+                      logger.info(f"[sig#{sig.id}] TP2 ضُرب! {price:.2f} >= {sig.tp2}")
+                      sig.tp2_hit = 1
+                      notifications.append(("🎯🎯 *الهدف الثاني TP2 ضُرب!*", None))
+                  # TP3 — فقط بعد TP2
+                  if sig.tp2_hit and not sig.tp3_hit and price >= sig.tp3:
+                      logger.info(f"[sig#{sig.id}] TP3 ضُرب! {price:.2f} >= {sig.tp3}")
+                      sig.tp3_hit = 1
+                      close_status = "win"
+                      notifications.append(("✅ *الهدف الثالث TP3 ضُرب — صفقة رابحة!* 🏆", "win"))
+                  # SL — فقط إذا لم يُضرب أي TP
+                  if not sig.tp1_hit and not close_status and price <= sig.sl:
+                      logger.info(f"[sig#{sig.id}] SL ضُرب! {price:.2f} <= {sig.sl}")
+                      close_status = "loss"
+                      notifications.append(("🛑 *وقف الخسارة SL ضُرب!*", "loss"))
+
+              else:  # SELL
+                  # TP1
+                  if not sig.tp1_hit and price <= sig.tp1:
+                      logger.info(f"[sig#{sig.id}] TP1 ضُرب! {price:.2f} <= {sig.tp1}")
+                      sig.tp1_hit = 1
+                      notifications.append(("🎯 *الهدف الأول TP1 ضُرب!*", None))
+                  # TP2 — فقط بعد TP1
+                  if sig.tp1_hit and not sig.tp2_hit and price <= sig.tp2:
+                      logger.info(f"[sig#{sig.id}] TP2 ضُرب! {price:.2f} <= {sig.tp2}")
+                      sig.tp2_hit = 1
+                      notifications.append(("🎯🎯 *الهدف الثاني TP2 ضُرب!*", None))
+                  # TP3 — فقط بعد TP2
+                  if sig.tp2_hit and not sig.tp3_hit and price <= sig.tp3:
+                      logger.info(f"[sig#{sig.id}] TP3 ضُرب! {price:.2f} <= {sig.tp3}")
+                      sig.tp3_hit = 1
+                      close_status = "win"
+                      notifications.append(("✅ *الهدف الثالث TP3 ضُرب — صفقة رابحة!* 🏆", "win"))
+                  # SL — فقط إذا لم يُضرب أي TP
+                  if not sig.tp1_hit and not close_status and price >= sig.sl:
+                      logger.info(f"[sig#{sig.id}] SL ضُرب! {price:.2f} >= {sig.sl}")
+                      close_status = "loss"
+                      notifications.append(("🛑 *وقف الخسارة SL ضُرب!*", "loss"))
+
+              # ── إرسال الإشعارات ────────────────────────────────────────────────
+              for label, _status in notifications:
+                  diff = round(price - sig.entry, 2) if sig.direction == "BUY" else round(sig.entry - price, 2)
+                  pnl = ("+" if diff >= 0 else "") + str(diff) + " نقطة"
+                  msg = (
+                      label + "\n"
+                      "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                      "📊 الإشارة: " + sig.direction + " XAUUSD\n"
+                      "💰 سعر الدخول: $" + str(sig.entry) + "\n"
+                      "📍 السعر الحالي: $" + str(round(price, 2)) + "\n"
+                      "📈 الفرق: " + pnl + "\n"
+                      "━━━━━━━━━━━━━━━━━━━━━━━━"
+                  )
+                  try:
+                      await context.bot.send_message(chat_id=sig.tg_id, text=msg, parse_mode="Markdown")
+                      logger.info(f"[sig#{sig.id}] إشعار أُرسل لـ {sig.tg_id}: {label[:30]}")
+                  except Exception as send_err:
+                      logger.warning(f"[sig#{sig.id}] فشل الإرسال لـ {sig.tg_id}: {send_err}")
+
+              # ── إغلاق الإشارة ─────────────────────────────────────────────────
+              if close_status:
+                  sig.status = close_status
+                  sig.closed_at = datetime.utcnow()
+                  logger.info(f"[sig#{sig.id}] الإشارة أُغلقت: {close_status}")
+
+          db.commit()
+          db.close()
+
+      except Exception as e:
+          logger.error(f"check_trade_signals خطأ: {e}", exc_info=True)
 
 async def admin_performance_report(context):
     """كل 12 ساعة — تقرير أداء الإشارات للأدمن فقط"""
