@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>بوت التداول الذكي — XAUUSD Pro</title>
+  <meta name="description" content="بوت تيليغرام للتداول الذكي في الذهب XAUUSD — إشارات بدقة 79% بالذكاء الاصطناعي">
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    :root{--gold:#FFD700;--gold2:#FFA500;--dark:#0a0a0f;--card:#12121a;--card2:#1a1a28;--text:#e8e8f0;--sub:#9999bb}
+    body{background:var(--dark);color:var(--text);font-family:'Segoe UI',Tahoma,sans-serif;overflow-x:hidden}
+
+    /* NAV */
+    nav{position:fixed;top:0;width:100%;background:rgba(10,10,15,.95);backdrop-filter:blur(10px);z-index:100;padding:14px 24px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,215,0,.15)}
+    .logo{font-size:1.3rem;font-weight:700;background:linear-gradient(135deg,var(--gold),var(--gold2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .nav-btn{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;padding:8px 20px;border-radius:20px;text-decoration:none;font-weight:700;font-size:.9rem;transition:.2s}
+    .nav-btn:hover{transform:scale(1.05)}
+
+    /* HERO */
+    .hero{min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:100px 24px 60px;background:radial-gradient(ellipse at 50% 0%,rgba(255,215,0,.08) 0%,transparent 70%)}
+    .hero-badge{background:rgba(255,215,0,.12);border:1px solid rgba(255,215,0,.3);color:var(--gold);padding:6px 16px;border-radius:20px;font-size:.85rem;display:inline-block;margin-bottom:24px}
+    .hero h1{font-size:clamp(2rem,6vw,4rem);font-weight:800;line-height:1.2;margin-bottom:20px}
+    .hero h1 span{background:linear-gradient(135deg,var(--gold),var(--gold2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .hero p{font-size:1.15rem;color:var(--sub);max-width:600px;margin:0 auto 36px;line-height:1.7}
+    .hero-btns{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+    .btn-primary{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;padding:14px 32px;border-radius:30px;text-decoration:none;font-weight:700;font-size:1rem;transition:.2s;display:inline-flex;align-items:center;gap:8px}
+    .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(255,215,0,.4)}
+    .btn-outline{border:2px solid rgba(255,215,0,.4);color:var(--gold);padding:14px 32px;border-radius:30px;text-decoration:none;font-weight:600;font-size:1rem;transition:.2s}
+    .btn-outline:hover{background:rgba(255,215,0,.08)}
+
+    /* STATS */
+    .stats{display:flex;justify-content:center;gap:48px;flex-wrap:wrap;padding:60px 24px;border-top:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.05)}
+    .stat{text-align:center}
+    .stat-num{font-size:2.5rem;font-weight:800;background:linear-gradient(135deg,var(--gold),var(--gold2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .stat-label{color:var(--sub);font-size:.9rem;margin-top:4px}
+
+    /* FEATURES */
+    .section{padding:80px 24px;max-width:1100px;margin:0 auto}
+    .section-title{text-align:center;font-size:2rem;font-weight:700;margin-bottom:12px}
+    .section-title span{background:linear-gradient(135deg,var(--gold),var(--gold2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .section-sub{text-align:center;color:var(--sub);margin-bottom:48px;font-size:1rem}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
+    .card{background:var(--card);border:1px solid rgba(255,215,0,.1);border-radius:16px;padding:28px;transition:.2s}
+    .card:hover{border-color:rgba(255,215,0,.35);transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,.4)}
+    .card-icon{font-size:2.2rem;margin-bottom:16px}
+    .card h3{font-size:1.15rem;font-weight:700;margin-bottom:10px;color:#fff}
+    .card p{color:var(--sub);font-size:.9rem;line-height:1.6}
+
+    /* HOW IT WORKS */
+    .steps{display:flex;flex-direction:column;gap:20px;max-width:680px;margin:0 auto}
+    .step{display:flex;gap:20px;align-items:flex-start;background:var(--card);border-radius:14px;padding:24px;border:1px solid rgba(255,255,255,.05)}
+    .step-num{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1rem;flex-shrink:0}
+    .step h3{font-weight:700;margin-bottom:6px}
+    .step p{color:var(--sub);font-size:.9rem}
+
+    /* PRICING */
+    .plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px;max-width:900px;margin:0 auto}
+    .plan{background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:32px;text-align:center;transition:.2s}
+    .plan.featured{border-color:var(--gold);background:linear-gradient(160deg,rgba(255,215,0,.08),var(--card));position:relative}
+    .plan-badge{position:absolute;top:-12px;right:50%;transform:translateX(50%);background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;padding:4px 16px;border-radius:20px;font-size:.8rem;font-weight:700}
+    .plan-name{font-size:1.3rem;font-weight:700;margin-bottom:8px}
+    .plan-price{font-size:2.8rem;font-weight:800;margin:16px 0;background:linear-gradient(135deg,var(--gold),var(--gold2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .plan-price span{font-size:1rem;color:var(--sub);-webkit-text-fill-color:var(--sub)}
+    .plan-features{list-style:none;margin:20px 0;text-align:right}
+    .plan-features li{padding:6px 0;color:var(--sub);font-size:.9rem;border-bottom:1px solid rgba(255,255,255,.04)}
+    .plan-features li::before{content:"✅ ";font-size:.8rem}
+
+    /* TESTIMONIALS */
+    .testimonials{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+    .testimonial{background:var(--card2);border-radius:14px;padding:24px;border-right:4px solid var(--gold)}
+    .testimonial p{font-size:.95rem;line-height:1.7;margin-bottom:16px;font-style:italic}
+    .testimonial-author{color:var(--gold);font-weight:600;font-size:.85rem}
+
+    /* CTA */
+    .cta{text-align:center;padding:100px 24px;background:radial-gradient(ellipse at 50% 100%,rgba(255,215,0,.08) 0%,transparent 70%)}
+    .cta h2{font-size:clamp(1.8rem,5vw,3rem);font-weight:800;margin-bottom:16px}
+    .cta p{color:var(--sub);margin-bottom:36px;font-size:1.05rem}
+
+    /* FOOTER */
+    footer{text-align:center;padding:32px 24px;color:var(--sub);font-size:.85rem;border-top:1px solid rgba(255,255,255,.05)}
+
+    /* LIVE TICKER */
+    .ticker{background:rgba(255,215,0,.06);border:1px solid rgba(255,215,0,.2);border-radius:12px;padding:16px 24px;display:inline-flex;align-items:center;gap:12px;margin-bottom:32px}
+    .ticker-dot{width:8px;height:8px;background:#00ff88;border-radius:50%;animation:pulse 1.5s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+    .ticker-text{font-size:.9rem;color:var(--sub)}
+    .ticker-price{font-weight:700;color:var(--gold);font-size:1rem}
+
+    @media(max-width:600px){
+      .stats{gap:24px}
+      .stat-num{font-size:2rem}
+      nav{padding:12px 16px}
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="logo">⚡ XAUUSD Pro</div>
+  <a href="https://t.me/YOUR_BOT_USERNAME" class="nav-btn" target="_blank">🚀 ابدأ مجاناً</a>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div>
+    <div class="hero-badge">🤖 ذكاء اصطناعي متقدم v7.0</div>
+    <div class="ticker">
+      <div class="ticker-dot"></div>
+      <span class="ticker-text">XAUUSD الذهب — مباشر</span>
+      <span class="ticker-price" id="goldPrice">$3,250.00</span>
+    </div>
+    <h1>بوت التداول الذكي<br><span>يكسب بدلاً عنك 🏆</span></h1>
+    <p>نظام تحليل بـ 12 مصدر تأكيد + ذكاء اصطناعي متعدد النماذج. إشارات XAUUSD فورية بدقة تصل إلى 79% — مع تداول آلي متصل بـ MT5.</p>
+    <div class="hero-btns">
+      <a href="https://t.me/YOUR_BOT_USERNAME" class="btn-primary" target="_blank">⚡ جرّب مجاناً الآن</a>
+      <a href="#features" class="btn-outline">اكتشف الميزات</a>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat"><div class="stat-num">79%</div><div class="stat-label">دقة التوقع</div></div>
+  <div class="stat"><div class="stat-num">12</div><div class="stat-label">مصدر تأكيد</div></div>
+  <div class="stat"><div class="stat-num">500+</div><div class="stat-label">إشارة ناجحة</div></div>
+  <div class="stat"><div class="stat-num">24/7</div><div class="stat-label">مراقبة مستمرة</div></div>
+</div>
+
+<!-- FEATURES -->
+<section class="section" id="features">
+  <h2 class="section-title">ميزات <span>لا مثيل لها</span></h2>
+  <p class="section-sub">كل ما تحتاجه كمتداول محترف في مكان واحد</p>
+  <div class="grid">
+    <div class="card"><div class="card-icon">🧠</div><h3>ذكاء اصطناعي متعدد النماذج</h3><p>6 نماذج ذكاء اصطناعي + 6 مؤشرات فنية تعمل معاً: RSI، MACD، Bollinger، Fibonacci، ATR، Stochastic وأكثر.</p></div>
+    <div class="card"><div class="card-icon">🤖</div><h3>تداول آلي مع MT5</h3><p>اربط حسابك عبر MetaAPI وشاهد الصفقات تُنفَّذ تلقائياً بمجرد صدور الإشارة — 24 ساعة بدون تدخلك.</p></div>
+    <div class="card"><div class="card-icon">🔔</div><h3>تنبيهات سعر مخصصة</h3><p>حدد السعر الذي تريده والبوت يرسل لك تنبيهاً فورياً عند وصول الذهب لهذا المستوى.</p></div>
+    <div class="card"><div class="card-icon">⏰</div><h3>مؤقت الجلسات الحية</h3><p>تابع جلسات Tokyo، London، New York — مع عد تنازلي دقيق لأوقات الفتح والإغلاق.</p></div>
+    <div class="card"><div class="card-icon">🌅</div><h3>ملخص يومي لـ VIP</h3><p>كل صباح الساعة 6:00 تصلك رسالة بسعر الذهب + توقع الجلسة + اتجاه اليوم المتوقع.</p></div>
+    <div class="card"><div class="card-icon">🧮</div><h3>حاسبة إدارة المخاطر</h3><p>احسب حجم اللوت المثالي حسب رأس مالك ونسبة المخاطرة — تداول بحكمة واحمِ حسابك.</p></div>
+    <div class="card"><div class="card-icon">📰</div><h3>أخبار الذهب اللحظية</h3><p>آخر أخبار سوق الذهب العالمي من Yahoo Finance وKitco مباشرةً داخل البوت.</p></div>
+    <div class="card"><div class="card-icon">🎁</div><h3>نظام الإحالة والنقاط</h3><p>ادعُ أصدقاءك واكسب نقاط ولاء وإشارات مجانية — كل 100 نقطة = إشارة مجانية!</p></div>
+    <div class="card"><div class="card-icon">📊</div><h3>تحليل الشارت بالذكاء الاصطناعي</h3><p>أرسل صورة شارتك والذكاء الاصطناعي يحللها ويعطيك رأيه الفني خلال ثوانٍ.</p></div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section" id="how">
+  <h2 class="section-title">كيف <span>تبدأ؟</span></h2>
+  <p class="section-sub">في 4 خطوات بسيطة</p>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div><h3>افتح البوت على تيليغرام</h3><p>ابحث عن البوت في تيليغرام أو اضغط على رابط "ابدأ مجاناً" وستجد نفسك في القائمة الرئيسية.</p></div></div>
+    <div class="step"><div class="step-num">2</div><div><h3>جرّب إشارة مجانية</h3><p>لديك 5 إشارات مجانية لتجربة النظام بالكامل — بدون بطاقة ائتمان ولا التزامات.</p></div></div>
+    <div class="step"><div class="step-num">3</div><div><h3>اشترك VIP للنتائج الكاملة</h3><p>فعّل عضوية VIP وستحصل على إشارات كاملة مع دخول وهدف ووقف خسارة دقيق.</p></div></div>
+    <div class="step"><div class="step-num">4</div><div><h3>فعّل التداول الآلي (اختياري)</h3><p>اربط حساب MT5 الخاص بك عبر MetaAPI وشاهد الصفقات تُنفَّذ تلقائياً!</p></div></div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="section" id="pricing">
+  <h2 class="section-title">خطط <span>الاشتراك</span></h2>
+  <p class="section-sub">ابدأ مجاناً — ثم اختر ما يناسبك</p>
+  <div class="plans">
+    <div class="plan">
+      <div class="plan-name">🆓 تجربة مجانية</div>
+      <div class="plan-price">$0<span>/مجاناً</span></div>
+      <ul class="plan-features">
+        <li>5 إشارات تجريبية</li>
+        <li>سعر الذهب المباشر</li>
+        <li>مؤقت الجلسات</li>
+        <li>أخبار الذهب</li>
+        <li>حاسبة المخاطرة</li>
+      </ul>
+      <a href="https://t.me/YOUR_BOT_USERNAME" class="btn-outline" target="_blank">ابدأ مجاناً</a>
+    </div>
+    <div class="plan featured">
+      <div class="plan-badge">الأكثر شيوعاً ⭐</div>
+      <div class="plan-name">💎 VIP الماسية</div>
+      <div class="plan-price">$50<span>/شهرياً</span></div>
+      <ul class="plan-features">
+        <li>إشارات XAUUSD غير محدودة</li>
+        <li>تداول آلي مع MT5</li>
+        <li>ملخص يومي الساعة 6 صباحاً</li>
+        <li>ملخص ما بعد السوق</li>
+        <li>تنبيهات سعر مخصصة</li>
+        <li>تحليل شارت بالذكاء الاصطناعي</li>
+        <li>تذكير تجديد الاشتراك</li>
+        <li>دعم فوري عبر واتساب</li>
+      </ul>
+      <a href="https://t.me/YOUR_BOT_USERNAME" class="btn-primary" target="_blank">اشترك الآن</a>
+    </div>
+  </div>
+</section>
+
+<!-- TESTIMONIALS -->
+<section class="section">
+  <h2 class="section-title">ماذا يقول <span>عملاؤنا؟</span></h2>
+  <p class="section-sub">تجارب حقيقية من متداولين عرب</p>
+  <div class="testimonials">
+    <div class="testimonial"><p>"أفضل بوت تداول جربته. الإشارات دقيقة جداً والتداول الآلي وفّر عليّ ساعات من المراقبة."</p><div class="testimonial-author">⭐⭐⭐⭐⭐ — أحمد، السعودية</div></div>
+    <div class="testimonial"><p>"ربحت من أول إشارة! النظام يشرح كل شيء بوضوح والملخص الصباحي رائع جداً."</p><div class="testimonial-author">⭐⭐⭐⭐⭐ — محمد، مصر</div></div>
+    <div class="testimonial"><p>"التداول الآلي مع MT5 غيّر حياتي. البوت يعمل حتى أثناء نومي وأستيقظ على أرباح!"</p><div class="testimonial-author">⭐⭐⭐⭐⭐ — خالد، الإمارات</div></div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+  <h2>جاهز تبدأ تكسب من الذهب؟ 🏆</h2>
+  <p>انضم لآلاف المتداولين الذين يثقون بإشاراتنا يومياً</p>
+  <a href="https://t.me/YOUR_BOT_USERNAME" class="btn-primary" target="_blank" style="font-size:1.1rem;padding:16px 40px">⚡ ابدأ مجاناً الآن — بدون بطاقة ائتمان</a>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>© 2026 XAUUSD Pro Trading Bot — جميع الحقوق محفوظة</p>
+  <p style="margin-top:8px;font-size:.75rem">⚠️ التداول محفوف بالمخاطر. الإشارات للأغراض التعليمية فقط. تحمّل مسؤوليتك.</p>
+</footer>
+
+<script>
+// Simulate live gold price update
+const base = 3248;
+function updatePrice() {
+  const change = (Math.random() - 0.48) * 2;
+  const price = (base + change).toFixed(2);
+  document.getElementById('goldPrice').textContent = '$' + parseFloat(price).toLocaleString('en-US', {minimumFractionDigits:2});
+}
+setInterval(updatePrice, 3000);
+
+// Smooth scroll
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelector(a.getAttribute('href'))?.scrollIntoView({behavior:'smooth'});
+  });
+});
+
+// Animate cards on scroll
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => { if(e.isIntersecting) e.target.style.opacity = '1'; });
+}, {threshold: 0.1});
+document.querySelectorAll('.card,.step,.plan,.testimonial').forEach(el => {
+  el.style.opacity = '0';
+  el.style.transition = 'opacity 0.5s ease, transform 0.3s ease';
+  observer.observe(el);
+});
+</script>
+</body>
+</html>
