@@ -230,35 +230,54 @@ HOLIDAYS = [
 def is_market_open() -> tuple:
     """
     ترجع (bool, str)
-    bool = True إذا كان السوق مفتوحاً
-    str = رسالة توضح السبب ومتى يفتح
+    XAUUSD يغلق: الجمعة 22:00 UTC
+    XAUUSD يفتح: الأحد   22:00 UTC
     """
     now = datetime.utcnow()
-    weekday = now.weekday()  # 0=الاثنين, 4=الجمعة, 5=السبت, 6=الأحد
+    weekday = now.weekday()   # 0=الاثنين .. 4=الجمعة .. 5=السبت .. 6=الأحد
+    hour    = now.hour
     current_date_str = now.strftime("%m-%d")
-    
-    # 1. عطل نهاية الأسبوع
-    if weekday >= 5:  # السبت (5) أو الأحد (6)
-        # افتتاح السوق: الأحد الساعة 23:00 UTC (تقريباً)
-        next_open = now.replace(hour=23, minute=0, second=0, microsecond=0)
-        if weekday == 5:  # السبت
-            next_open += timedelta(days=1)
-        elif weekday == 6 and now.hour >= 23:
-            next_open += timedelta(days=1)
+
+    # ── 1. السبت كله مغلق ──────────────────────────────────────────
+    if weekday == 5:
+        next_open = now.replace(hour=22, minute=0, second=0, microsecond=0)
+        next_open += timedelta(days=1)   # الأحد الساعة 22:00
         remaining = next_open - now
-        hours = int(remaining.total_seconds() // 3600)
-        minutes = int((remaining.total_seconds() % 3600) // 60)
-        return False, f"⛔ السوق مغلق حالياً (عطلة نهاية الأسبوع). سيفتح بعد {hours} ساعة و {minutes} دقيقة."
-    
-    # 2. العطل الرسمية
+        hrs = int(remaining.total_seconds() // 3600)
+        mins = int((remaining.total_seconds() % 3600) // 60)
+        return False, f"⛔ السوق مغلق (السبت). يفتح الأحد 22:00 UTC (بعد {hrs}س {mins}د)."
+
+    # ── 2. الأحد قبل 22:00 UTC مغلق، من 22:00 فصاعداً مفتوح ────────
+    if weekday == 6:
+        if hour < 22:
+            next_open = now.replace(hour=22, minute=0, second=0, microsecond=0)
+            remaining = next_open - now
+            hrs = int(remaining.total_seconds() // 3600)
+            mins = int((remaining.total_seconds() % 3600) // 60)
+            return False, f"⛔ السوق مغلق (الأحد قبل الافتتاح). يفتح الساعة 22:00 UTC (بعد {hrs}س {mins}د)."
+        # الأحد 22:00+ → مفتوح
+        return True, "✅ السوق مفتوح (جلسة آسيا — بدأت هذا الأحد 22:00 UTC)."
+
+    # ── 3. الجمعة بعد 22:00 UTC مغلق ───────────────────────────────
+    if weekday == 4 and hour >= 22:
+        next_open = now.replace(hour=22, minute=0, second=0, microsecond=0)
+        next_open += timedelta(days=2)   # الأحد 22:00
+        remaining = next_open - now
+        hrs = int(remaining.total_seconds() // 3600)
+        mins = int((remaining.total_seconds() % 3600) // 60)
+        return False, f"⛔ السوق أغلق (الجمعة 22:00 UTC). يفتح الأحد 22:00 UTC (بعد {hrs}س {mins}د)."
+
+    # ── 4. العطل الرسمية ────────────────────────────────────────────
     if current_date_str in HOLIDAYS:
         next_open = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
         remaining = next_open - now
-        hours = int(remaining.total_seconds() // 3600)
-        minutes = int((remaining.total_seconds() % 3600) // 60)
-        return False, f"⛔ السوق مغلق بمناسبة عطلة رسمية ({current_date_str}). سيفتح بعد {hours} ساعة و {minutes} دقيقة."
-    
-    return True, "✅ السوق مفتوح الآن."
+        hrs = int(remaining.total_seconds() // 3600)
+        mins = int((remaining.total_seconds() % 3600) // 60)
+        return False, f"⛔ السوق مغلق (عطلة رسمية {current_date_str}). يفتح بعد {hrs}س {mins}د."
+
+    # ── 5. باقي الوقت (الاثنين-الجمعة قبل 22:00) → مفتوح ────────────
+    day_names = {0: "الاثنين", 1: "الثلاثاء", 2: "الأربعاء", 3: "الخميس", 4: "الجمعة"}
+    return True, "✅ السوق مفتوح الآن (" + day_names.get(weekday, "") + " " + str(hour).zfill(2) + ":xx UTC)."
 
 async def notify_market_reopening(context: ContextTypes.DEFAULT_TYPE):
     """تُستدعى عند فتح السوق (مثلاً يوم الاثنين) لإعلام جميع المستخدمين."""
@@ -275,7 +294,14 @@ async def notify_market_reopening(context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(0.05)
             except:
                 pass
-        logger.info(f"تم إرسال إشعار فتح السوق لـ {sent} مستخدم.")
+        p = gold_manager.current_price
+        src = "WebSocket" if finnhub_ws.is_data_fresh() else "HTTP/Yahoo"
+        logger.info(
+            "تم إرسال إشعار فتح السوق لـ " + str(sent) + " مستخدم"
+            " | سعر=" + str(round(p, 2) if p else "N/A") +
+            " | مصدر=" + src +
+            " | آخر_تيك=" + str(gold_manager.last_update)
+        )
     except Exception as e:
         logger.error(f"notify_market_reopening error: {e}")
 
@@ -3848,20 +3874,72 @@ async def price_update_job(context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Price update error: {e}")
 
 
+# علم مستوى الوحدة — يبقى محفوظاً بين تشغيلات المهمة (context لا يُحفظ)
+_market_was_open: bool = False
+
 async def market_reopen_check(context: ContextTypes.DEFAULT_TYPE):
     """
-    تفحص كل ساعة إذا كان السوق قد فتح (نهاية عطلة نهاية الأسبوع أو عطلة رسمية)
-    إذا كان مفتوحاً، أرسل إشعاراً لجميع المستخدمين.
+    تفحص كل ساعة إذا فتح سوق XAUUSD.
+    الإشعار يُرسل فقط عند:
+      1. التحول من مغلق -> مفتوح (مرة واحدة)
+      2. وصول تيك حقيقي من مصدر البيانات (last_update < 10 دق)
+      3. السعر صالح (> 100)
     """
-    market_open, _ = is_market_open()
-    if market_open:
-        # نتأكد من أننا لم نرسل إشعاراً بالفعل في هذه الجلسة
-        if not hasattr(context, "market_notified") or not context.market_notified:
-            await notify_market_reopening(context)
-            context.market_notified = True
-    else:
-        # إذا كان مغلقاً، نعيد تعيين العلم حتى إذا فتح لاحقاً نرسل مرة أخرى
-        context.market_notified = False
+    global _market_was_open
+
+    now = datetime.utcnow()
+    market_open, market_msg = is_market_open()
+
+    if not market_open:
+        # إعادة تعيين العلم حتى يُرسل الإشعار عند الفتح التالي
+        if _market_was_open:
+            logger.info("السوق أغلق — سيُرسل إشعار عند الفتح التالي.")
+        _market_was_open = False
+        return
+
+    # ── السوق مفتوح — هل هذا تحول جديد؟ ──────────────────────────
+    if _market_was_open:
+        # لا نرسل مجدداً — السوق كان مفتوحاً بالفعل
+        return
+
+    # ── تحقق من بيانات حقيقية ──────────────────────────────────────
+    price         = gold_manager.current_price
+    last_upd      = gold_manager.last_update
+    price_valid   = price and price > 100
+    upd_seconds   = (now - last_upd).total_seconds() if last_upd else 99999
+    data_fresh    = last_upd is not None and upd_seconds < 600
+    ws_connected  = finnhub_ws.is_connected()
+    data_source   = "WebSocket" if finnhub_ws.is_data_fresh() else ("Yahoo/HTTP" if data_fresh else "لا يوجد")
+
+    logger.info(
+        "فحص فتح السوق:"
+        " | open=" + str(market_open) +
+        " | سعر=" + str(round(price, 2) if price else "N/A") +
+        " | آخر_تيك=" + str(round(upd_seconds)) + "ث" +
+        " | WS=" + str(ws_connected) +
+        " | مصدر=" + data_source
+    )
+
+    if not price_valid:
+        logger.warning("السوق مفتوح زمنياً لكن لا سعر صالح — إشعار مؤجل.")
+        return
+
+    if not data_fresh:
+        logger.warning(
+            "السوق مفتوح زمنياً لكن لا بيانات حديثة ("
+            + str(round(upd_seconds)) + "ث منذ آخر تحديث) — إشعار مؤجل."
+        )
+        return
+
+    # ── كل الشروط محققة — أرسل الإشعار مرة واحدة ──────────────────
+    logger.info(
+        "إرسال إشعار فتح السوق"
+        " | سعر=" + str(round(price, 2)) +
+        " | مصدر=" + data_source +
+        " | " + market_msg
+    )
+    _market_was_open = True
+    await notify_market_reopening(context)
 
 
 # ============================================================
