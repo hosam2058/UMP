@@ -678,12 +678,16 @@ FINNHUB_KEYS = [
 FINNHUB_API_KEY = FINNHUB_KEYS[0]   # للتوافق مع باقي الكود
 
 class FinnhubWebSocket:
+    """WebSocket لحظي لسعر الذهب — يدعم مفتاحين ويمنع الاتصال المزدوج"""
+
     def __init__(self):
-        self.ws = None
-        self._thread = None
+        self.ws          = None
+        self._thread     = None
         self._last_price = None
-        self._running = False
-        self._key_idx = 0
+        self._running    = False
+        self._connected  = False        # حالة الاتصال الفعلية
+        self._reconnecting = False      # علم يمنع اتصالين متزامنين
+        self._key_idx    = 0
 
     def _current_key(self):
         return FINNHUB_KEYS[self._key_idx % len(FINNHUB_KEYS)]
@@ -691,17 +695,19 @@ class FinnhubWebSocket:
     def _next_key(self):
         self._key_idx += 1
         key = self._current_key()
-        logger.warning(f"🔄 تبديل مفتاح Finnhub — الآن: ...{key[-6:]}")
+        logger.warning("تبديل مفتاح Finnhub -> ..." + key[-6:])
         return key
 
     def _on_open(self, ws):
-        key_label = f"...{self._current_key()[-6:]}"
-        logger.info(f"🔌 Finnhub WS متصل (مفتاح {key_label}) — اشتراك OANDA:XAU_USD")
+        self._connected   = True
+        self._reconnecting = False
+        key = self._current_key()
+        logger.info("Finnhub WS متصل (..." + key[-6:] + ") — اشتراك OANDA:XAU_USD")
         ws.send(json.dumps({"type": "subscribe", "symbol": "OANDA:XAU_USD"}))
 
     def _on_message(self, ws, message):
         try:
-            data = json.loads(message)
+            data     = json.loads(message)
             msg_type = data.get("type")
             if msg_type == "ping":
                 ws.send(json.dumps({"type": "pong"}))
@@ -715,25 +721,30 @@ class FinnhubWebSocket:
                     gold_manager.feed_ws_price(float(price))
                     logger.info("WS XAU: " + str(round(float(price), 2)))
         except Exception as e:
-            logger.warning(f"⚠️ WS message error: {e}")
+            logger.warning("WS message error: " + str(e))
 
     def _on_error(self, ws, error):
-        logger.warning(f"⚠️ Finnhub WS خطأ: {error}")
+        logger.warning("Finnhub WS خطأ: " + str(error))
+        # بدّل المفتاح للاتصال التالي
         self._next_key()
 
     def _on_close(self, ws, code, msg):
-        logger.warning(f"🔴 Finnhub WS مغلق (كود: {code}) — إعادة اتصال بعد 5 ثوانٍ")
-        if self._running:
-            threading.Timer(5, self._connect).start()
+        self._connected = False
+        logger.warning("Finnhub WS مغلق (" + str(code) + ") — إعادة اتصال بعد 8 ثوانٍ")
+        # فقط إذا لم يكن هناك اتصال قيد الإنشاء بالفعل
+        if self._running and not self._reconnecting:
+            self._reconnecting = True
+            threading.Timer(8, self._connect).start()
 
     def _connect(self):
         if not _WS_AVAILABLE or _WebSocketApp is None:
-            logger.warning("⚠️ websocket-client غير مثبت — وضع HTTP فقط")
+            logger.warning("websocket-client غير مثبت — وضع HTTP فقط")
+            self._reconnecting = False
             return
         try:
             key = self._current_key()
             url = "wss://ws.finnhub.io?token=" + key
-            logger.info("🔗 محاولة اتصال Finnhub WS ..." + key[-6:])
+            logger.info("محاولة اتصال Finnhub WS ..." + key[-6:])
             self.ws = _WebSocketApp(
                 url,
                 on_open=self._on_open,
@@ -741,36 +752,41 @@ class FinnhubWebSocket:
                 on_error=self._on_error,
                 on_close=self._on_close,
             )
-            self.ws.run_forever(ping_interval=20, ping_timeout=8)
+            # run_forever يحجب الـ thread حتى ينتهي الاتصال
+            self.ws.run_forever(ping_interval=25, ping_timeout=10)
         except Exception as e:
-            logger.error(f"❌ Finnhub WS connect error: {e}")
-            if self._running:
-                self._next_key()
-                threading.Timer(5, self._connect).start()
+            logger.error("Finnhub WS connect error: " + str(e))
+            self._connected = False
+        finally:
+            # run_forever انتهى — خطأ أو إغلاق عادي
+            # _on_close سيتولى جدولة إعادة الاتصال إذا _running=True
+            self._reconnecting = False
 
-    def is_alive(self) -> bool:
+    def is_connected(self) -> bool:
+        """هل الاتصال قائم حالياً؟"""
+        return self._connected
+
+    def is_data_fresh(self) -> bool:
+        """هل وصلنا بيانات سعر في آخر 5 دقائق؟"""
         return (
             gold_manager.last_update is not None and
             (datetime.utcnow() - gold_manager.last_update).total_seconds() < 300
         )
 
-    def force_reconnect(self):
-        logger.warning("🔁 إعادة اتصال إجبارية للـ WebSocket")
-        if self.ws:
-            try:
-                self.ws.close()
-            except Exception:
-                pass
-        threading.Timer(2, self._connect).start()
+    def is_alive(self) -> bool:
+        """متصل + بيانات حديثة"""
+        return self.is_connected() and self.is_data_fresh()
 
     def start(self):
-        self._running = True
+        self._running     = True
+        self._reconnecting = True   # يمنع _on_close من الجدولة أثناء البداية
         self._thread = threading.Thread(target=self._connect, daemon=True, name="FinnhubWS")
         self._thread.start()
-        logger.info("🚀 Finnhub WebSocket thread بدأ (مفتاحان للـ fallback)")
+        logger.info("Finnhub WebSocket thread بدأ (مفتاحان للـ fallback)")
 
     def stop(self):
-        self._running = False
+        self._running   = False
+        self._connected = False
         if self.ws:
             self.ws.close()
 
@@ -3712,15 +3728,22 @@ async def _handle_auto_buttons(query, data: str):
 async def price_update_job(context: ContextTypes.DEFAULT_TYPE):
     """تحديث سعر الذهب كل 3 دقائق وتوليد إشارات تلقائية للـ VIP"""
     try:
-        ws_fresh = finnhub_ws.is_alive()
-        if not ws_fresh:
-            logger.warning("⚠️ WS متوقف — HTTP fallback + إعادة اتصال")
+        ws_ok   = finnhub_ws.is_connected()
+        data_ok = finnhub_ws.is_data_fresh()
+
+        if not data_ok:
+            # لا بيانات حديثة — HTTP fallback (Yahoo Finance اولاً)
+            logger.warning("بيانات قديمة — HTTP fallback")
             gold_manager.update()
-            finnhub_ws.force_reconnect()
+
+        p = gold_manager.current_price or 0
+        n = len(gold_manager.price_history)
+        if ws_ok and data_ok:
+            logger.info("WS نشط بيانات حديثة — سعر: " + str(round(p, 2)) + " نقاط: " + str(n))
+        elif ws_ok:
+            logger.info("WS متصل ينتظر اول تيك — كاش: " + str(round(p, 2)))
         else:
-            p = gold_manager.current_price or 0
-            n = len(gold_manager.price_history)
-            logger.info("WS نشط — سعر: " + str(round(p, 2)) + " | نقاط: " + str(n))
+            logger.warning("WS منقطع يعيد اتصال — HTTP: " + str(round(p, 2)))
         
         # ── التحقق من فتح السوق قبل إرسال الإشارات التلقائية ──
         market_open, _ = is_market_open()
