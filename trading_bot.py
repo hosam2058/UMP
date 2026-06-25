@@ -20,6 +20,9 @@ except ImportError:
 from datetime import datetime, timedelta
 from collections import deque
 import auto_trader
+# guard: بعض الإصدارات لا تعرّف auto_trading_enabled
+if not hasattr(auto_trader, 'auto_trading_enabled'):
+    auto_trader.auto_trading_enabled = False
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, PollAnswerHandler, filters, ContextTypes
 from datetime import time as dtime
@@ -1568,9 +1571,13 @@ alert_conv = _CH2(
 async def check_gold_alerts(context):
     """يُشغَّل في كل تحديث سعر للتحقق من التنبيهات"""
     try:
-        gold_manager.update()
-        current = gold_manager.price
-        if not current:
+        # WS إذا حديث → لا نستدعي HTTP ولا نلوث current_price بسعر قديم
+        if finnhub_ws.is_data_fresh():
+            current = gold_manager.current_price
+        else:
+            gold_manager.update()
+            current = gold_manager.current_price
+        if not current or current <= 0:
             return
         db = SessionLocal()
         alerts = db.query(GoldAlert).filter(GoldAlert.is_active == True).all()
@@ -2054,11 +2061,21 @@ async def check_trade_signals(context):
       - كل مقارنة تُسجَّل في logger للتشخيص
       """
       try:
-          gold_manager.update()
-          price = gold_manager.price
-          if not price:
+          # ── اختر مصدر السعر: WS إذا نشط وحديث، وإلا HTTP fallback ──────────
+          ws_fresh = finnhub_ws.is_data_fresh()
+          if ws_fresh:
+              # استخدم السعر الحالي من الـ WebSocket مباشرة (دون HTTP)
+              price = gold_manager.current_price
+              src   = "WebSocket"
+          else:
+              # WS غير نشط أو بياناته قديمة — استدعاء HTTP كـ fallback فقط
+              gold_manager.update()
+              price = gold_manager.current_price
+              src   = "HTTP/Yahoo"
+          if not price or price <= 0:
               logger.warning("check_trade_signals: لا يوجد سعر ذهب حالي — تخطّي هذه الدورة")
               return
+          logger.info(f"check_trade_signals: مصدر السعر={src}")
 
           db = SessionLocal()
           open_sigs = db.query(TradeSignal).filter(TradeSignal.status == "open").all()
@@ -3633,7 +3650,7 @@ async def admin_automode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
     if not context.args:
-        state = "🟢 مفعَّل" if auto_trader.auto_trading_enabled else "🔴 موقوف"
+        state = "🟢 مفعَّل" if getattr(auto_trader, 'auto_trading_enabled', False) else "🔴 موقوف"
         await update.message.reply_text(
             f"🤖 *التداول الآلي حالياً: {state}*\n\n"
             f"الاستخدام:\n`/automode on` — تفعيل\n`/automode off` — إيقاف",
@@ -3802,7 +3819,7 @@ async def price_update_job(context: ContextTypes.DEFAULT_TYPE):
                 _save_signal_for_website(signal)
                 _update_stats_for_website()
 
-                if auto_trader.auto_trading_enabled:
+                if getattr(auto_trader, 'auto_trading_enabled', False):
                     try:
                         loop = asyncio.get_event_loop()
                         trade_result = await loop.run_in_executor(
