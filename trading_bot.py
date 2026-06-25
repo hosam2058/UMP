@@ -542,7 +542,41 @@ class GoldPriceManager:
             return "متداخلة 🌍"
 
     def fetch_price(self) -> dict:
-        """جلب سعر الذهب الحقيقي"""
+        """جلب سعر الذهب الحقيقي — يجرب 5 مصادر بالترتيب"""
+
+        # 1. Yahoo Finance (الاوثق، بدون API key)
+        try:
+            r = requests.get(
+                "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                timeout=8
+            )
+            if r.status_code == 200:
+                d = r.json()
+                price = d["chart"]["result"][0]["meta"]["regularMarketPrice"]
+                if price and float(price) > 100:
+                    logger.info(f"Yahoo Finance: ${float(price):.2f}")
+                    return {"price": float(price), "source": "yahoo"}
+        except Exception as e:
+            logger.warning(f"Yahoo Finance فشل: {e}")
+
+        # 2. Yahoo Finance مرآة احتياطية
+        try:
+            r = requests.get(
+                "https://query2.finance.yahoo.com/v7/finance/quote?symbols=GC%3DF&fields=regularMarketPrice",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                timeout=8
+            )
+            if r.status_code == 200:
+                d = r.json()
+                price = d["quoteResponse"]["result"][0]["regularMarketPrice"]
+                if price and float(price) > 100:
+                    logger.info(f"Yahoo Finance v7: ${float(price):.2f}")
+                    return {"price": float(price), "source": "yahoo_v7"}
+        except Exception as e:
+            logger.warning(f"Yahoo Finance v7 فشل: {e}")
+
+        # 3. goldprice.org
         try:
             r = requests.get(
                 "https://data-asg.goldprice.org/GetData/USD-XAU/1",
@@ -553,10 +587,12 @@ class GoldPriceManager:
                 data = r.json()
                 if data and len(data) > 0:
                     price = float(data[0].split(",")[1])
-                    return {"price": price, "source": "goldprice.org"}
+                    if price > 100:
+                        return {"price": price, "source": "goldprice.org"}
         except Exception as e:
             logger.warning(f"goldprice.org فشل: {e}")
 
+        # 4. metals.live
         try:
             r = requests.get(
                 "https://metals.live/api/spot",
@@ -568,11 +604,12 @@ class GoldPriceManager:
                 for item in data:
                     if item.get("metal") == "gold":
                         price = float(item.get("price", 0))
-                        if price > 0:
+                        if price > 100:
                             return {"price": price, "source": "metals.live"}
         except Exception as e:
             logger.warning(f"metals.live فشل: {e}")
 
+        # 5. goldapi.io (إذا توفر مفتاح)
         if GOLD_API_KEY:
             try:
                 r = requests.get(
@@ -583,13 +620,15 @@ class GoldPriceManager:
                 if r.status_code == 200:
                     data = r.json()
                     price = float(data.get("price", 0))
-                    if price > 0:
+                    if price > 100:
                         return {"price": price, "source": "goldapi.io"}
             except Exception as e:
                 logger.warning(f"GoldAPI فشل: {e}")
 
-        if self.current_price:
-            noise = random.uniform(-2, 2)
+        # 6. الكاش المحلي (آخر سعر معروف)
+        if self.current_price and self.current_price > 100:
+            noise = random.uniform(-0.5, 0.5)
+            logger.info(f"جميع المصادر فشلت — الكاش: ${self.current_price:.2f}")
             return {"price": round(self.current_price + noise, 2), "source": "cached"}
 
         return {"price": None, "source": "none"}
@@ -2154,7 +2193,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_live_gold(query):
-    gold_manager.update()
+    # اذا السعر متاح وحديث (اقل من 10 دقائق)، اعرضه فوراً بدون HTTP
+    import datetime as _dt
+    price_fresh = (
+        gold_manager.current_price and
+        gold_manager.current_price > 100 and
+        gold_manager.last_update is not None and
+        (datetime.utcnow() - gold_manager.last_update).total_seconds() < 600
+    )
+    if not price_fresh:
+        gold_manager.update()
     price = gold_manager.current_price
     session = gold_manager._get_trading_session()
 
