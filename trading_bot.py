@@ -165,6 +165,11 @@ def _migrate_db():
             conn.commit()
         except Exception:
             pass
+    try:
+        conn.execute(_text("CREATE TABLE IF NOT EXISTS trade_signals (id INTEGER PRIMARY KEY AUTOINCREMENT, tg_id TEXT NOT NULL, direction TEXT, entry REAL, sl REAL, tp1 REAL, tp2 REAL, tp3 REAL, confidence REAL, status TEXT DEFAULT 'open', tp_hit INTEGER DEFAULT 0, sent_at TIMESTAMP, closed_at TIMESTAMP)"))
+        conn.commit()
+    except Exception:
+        pass
     for _gc, _gd in [
         ("target_price", "ALTER TABLE gold_alerts ADD COLUMN target_price REAL DEFAULT 0"),
     ]:
@@ -1037,13 +1042,9 @@ def vip_menu():
          InlineKeyboardButton("🧠 تحليل شارت بالذكاء الاصطناعي", callback_data="analyze_chart")],
         [InlineKeyboardButton("🤖 تداول آلي Auto Trading 🤖", callback_data="auto_trading_menu")],
         [InlineKeyboardButton("🔔 تنبيه سعر", callback_data="set_alert"),
-         InlineKeyboardButton("🧮 حاسبة المخاطرة", callback_data="risk_calc")],
-        [InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer"),
-         InlineKeyboardButton("📰 أخبار الذهب", callback_data="gold_news")],
-        [InlineKeyboardButton("🎁 الإحالة والنقاط", callback_data="referral_menu"),
-         InlineKeyboardButton("⭐ نقاطي", callback_data="my_points")],
-        [InlineKeyboardButton("🏆 نتائج التوصيات", callback_data="results_menu"),
-         InlineKeyboardButton("👤 حسابي", callback_data="my_account")],
+         InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer")],
+        [InlineKeyboardButton("📰 أخبار الذهب", callback_data="gold_news"),
+         InlineKeyboardButton("🏆 نتائج التوصيات", callback_data="results_menu")],
         [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
          InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
         [InlineKeyboardButton("🌐 زيارة الموقع", url=WEBSITE_URL),
@@ -1058,14 +1059,11 @@ def trial_menu():
          InlineKeyboardButton("💰 سعر الذهب المباشر", callback_data="live_gold")],
         [InlineKeyboardButton("💎 اشترك VIP — إشارات كاملة", callback_data="plans")],
         [InlineKeyboardButton("🔔 تنبيه سعر", callback_data="set_alert"),
-         InlineKeyboardButton("🧮 حاسبة المخاطرة", callback_data="risk_calc")],
-        [InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer"),
-         InlineKeyboardButton("📰 أخبار الذهب", callback_data="gold_news")],
-        [InlineKeyboardButton("🎁 ادعُ صديقاً", callback_data="referral_menu"),
-         InlineKeyboardButton("👤 حسابي", callback_data="my_account")],
-        [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
-         InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
-        [InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
+         InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer")],
+        [InlineKeyboardButton("📰 أخبار الذهب", callback_data="gold_news"),
+         InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods")],
+        [InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK),
+         InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -1907,6 +1905,130 @@ async def admin_broadcast_prompt(query, user_id):
 
 
 # ============================================================
+#  TRADE SIGNAL TRACKING
+# ============================================================
+class TradeSignal(Base):
+    __tablename__ = "trade_signals"
+    id        = Column(Integer, primary_key=True, autoincrement=True)
+    tg_id     = Column(String, nullable=False, index=True)
+    direction = Column(String)
+    entry     = Column(Float)
+    sl        = Column(Float)
+    tp1       = Column(Float)
+    tp2       = Column(Float)
+    tp3       = Column(Float)
+    confidence= Column(Float)
+    status    = Column(String, default="open")  # open / win / loss
+    tp_hit    = Column(Integer, default=0)       # 1,2,3
+    sent_at   = Column(DateTime, default=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
+
+async def check_trade_signals(context):
+    """كل 5 دقائق — تحقق من الإشارات المفتوحة وأرسل تنبيه عند ضرب SL أو TP"""
+    try:
+        gold_manager.update()
+        price = gold_manager.price
+        if not price:
+            return
+        db = SessionLocal()
+        open_sigs = db.query(TradeSignal).filter(TradeSignal.status == "open").all()
+        for sig in open_sigs:
+            hit_type = None
+            hit_label = ""
+            if sig.direction == "BUY":
+                if price <= sig.sl:
+                    hit_type = "loss"
+                    hit_label = "🛑 *وقف الخسارة SL ضُرب!*"
+                elif sig.tp_hit == 0 and price >= sig.tp1:
+                    sig.tp_hit = 1
+                    hit_type = None  # partial, don't close
+                    hit_label = "🎯 *الهدف الأول TP1 ضُرب!*"
+                elif sig.tp_hit == 1 and price >= sig.tp2:
+                    sig.tp_hit = 2
+                    hit_label = "🎯🎯 *الهدف الثاني TP2 ضُرب!*"
+                elif sig.tp_hit >= 2 and price >= sig.tp3:
+                    hit_type = "win"
+                    hit_label = "✅ *الهدف الثالث TP3 ضُرب — صفقة رابحة!* 🏆"
+            else:  # SELL
+                if price >= sig.sl:
+                    hit_type = "loss"
+                    hit_label = "🛑 *وقف الخسارة SL ضُرب!*"
+                elif sig.tp_hit == 0 and price <= sig.tp1:
+                    sig.tp_hit = 1
+                    hit_type = None
+                    hit_label = "🎯 *الهدف الأول TP1 ضُرب!*"
+                elif sig.tp_hit == 1 and price <= sig.tp2:
+                    sig.tp_hit = 2
+                    hit_label = "🎯🎯 *الهدف الثاني TP2 ضُرب!*"
+                elif sig.tp_hit >= 2 and price <= sig.tp3:
+                    hit_type = "win"
+                    hit_label = "✅ *الهدف الثالث TP3 ضُرب — صفقة رابحة!* 🏆"
+            if not hit_label:
+                continue
+            pnl = ""
+            if sig.direction == "BUY":
+                diff = round(price - sig.entry, 2)
+            else:
+                diff = round(sig.entry - price, 2)
+            pnl = ("+" if diff >= 0 else "") + str(diff) + " نقطة"
+            msg = (
+                hit_label + "\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "📊 الإشارة: " + sig.direction + " XAUUSD\n"
+                "💰 سعر الدخول: $" + str(sig.entry) + "\n"
+                "📍 السعر الحالي: $" + str(round(price, 2)) + "\n"
+                "📈 الفرق: " + pnl + "\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━"
+            )
+            try:
+                await context.bot.send_message(chat_id=sig.tg_id, text=msg, parse_mode="Markdown")
+            except Exception:
+                pass
+            if hit_type:
+                sig.status = hit_type
+                sig.closed_at = datetime.utcnow()
+        db.commit()
+        db.close()
+    except Exception as e:
+        logger.error("check_trade_signals: " + str(e))
+
+async def admin_performance_report(context):
+    """كل 12 ساعة — تقرير أداء الإشارات للأدمن فقط"""
+    try:
+        db = SessionLocal()
+        total  = db.query(TradeSignal).count()
+        wins   = db.query(TradeSignal).filter(TradeSignal.status == "win").count()
+        losses = db.query(TradeSignal).filter(TradeSignal.status == "loss").count()
+        open_n = db.query(TradeSignal).filter(TradeSignal.status == "open").count()
+        users  = db.query(TradingUser).count()
+        vips   = db.query(TradingUser).filter(TradingUser.is_vip == True).count()
+        db.close()
+        win_rate = round(wins / (wins + losses) * 100, 1) if (wins + losses) > 0 else 0
+        msg = (
+            "📊 *تقرير أداء الإشارات — كل 12 ساعة*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "🕐 " + datetime.utcnow().strftime("%Y-%m-%d %H:%M") + " UTC\n\n"
+            "📈 *الإشارات:*\n"
+            "• الإجمالي: " + str(total) + "\n"
+            "• رابحة ✅: " + str(wins) + "\n"
+            "• خاسرة ❌: " + str(losses) + "\n"
+            "• مفتوحة 🔄: " + str(open_n) + "\n"
+            "• نسبة الفوز: " + str(win_rate) + "%\n\n"
+            "👥 *المستخدمون:*\n"
+            "• الإجمالي: " + str(users) + "\n"
+            "• VIP: " + str(vips) + "\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(chat_id=admin_id, text=msg, parse_mode="Markdown")
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error("admin_performance_report: " + str(e))
+
+
+# ============================================================
 #  HANDLERS
 # ============================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2224,6 +2346,24 @@ async def handle_get_signal(query, user_id):
 
     text = format_signal(signal)
     await query.edit_message_text(text, reply_markup=back_menu(), parse_mode="Markdown")
+    # تتبع الإشارة
+    try:
+        db2 = SessionLocal()
+        ts = TradeSignal(
+            tg_id=str(user_id),
+            direction=signal["direction"],
+            entry=signal["entry"],
+            sl=signal["sl"],
+            tp1=signal["tp1"],
+            tp2=signal["tp2"],
+            tp3=signal["tp3"],
+            confidence=signal.get("confidence", 0),
+        )
+        db2.add(ts)
+        db2.commit()
+        db2.close()
+    except Exception as _te:
+        logger.error("save_trade_signal: " + str(_te))
 
 
 async def handle_chart_analysis(query, user_id):
@@ -3660,6 +3800,18 @@ async def post_init(application: Application):
         vip_renewal_reminder,
         time=dtime(10, 0, 0),
         name="vip_reminder"
+    )
+    application.job_queue.run_repeating(
+        check_trade_signals,
+        interval=300,
+        first=60,
+        name="trade_signal_checker"
+    )
+    application.job_queue.run_repeating(
+        admin_performance_report,
+        interval=43200,
+        first=600,
+        name="admin_perf_report"
     )
     application.job_queue.run_daily(
         daily_reminder_job,
