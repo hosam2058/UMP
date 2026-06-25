@@ -134,50 +134,31 @@ Base.metadata.create_all(bind=engine)
 
 def _migrate_db():
     from sqlalchemy import text as _text
+    # ✅ FIX: كل العمليات داخل with block واحد
     with engine.connect() as conn:
-        for col, ddl in [
-            ("first_name",         "ALTER TABLE trading_users ADD COLUMN first_name TEXT DEFAULT ''"),
-            ("signals_requested",  "ALTER TABLE trading_users ADD COLUMN signals_requested INTEGER DEFAULT 0"),
-        ]:
+        all_migrations = [
+            # trading_users columns
+            "ALTER TABLE trading_users ADD COLUMN first_name TEXT DEFAULT ''",
+            "ALTER TABLE trading_users ADD COLUMN signals_requested INTEGER DEFAULT 0",
+            "ALTER TABLE trading_users ADD COLUMN loyalty_points INTEGER DEFAULT 0",
+            "ALTER TABLE trading_users ADD COLUMN bonus_signals INTEGER DEFAULT 0",
+            "ALTER TABLE trading_users ADD COLUMN vip_expires_at TIMESTAMP",
+            "ALTER TABLE trading_users ADD COLUMN referred_by TEXT DEFAULT ''",
+            # auto_trade_accounts columns
+            "ALTER TABLE auto_trade_accounts ADD COLUMN meta_token TEXT DEFAULT ''",
+            "ALTER TABLE auto_trade_accounts ADD COLUMN meta_account_id TEXT DEFAULT ''",
+            "ALTER TABLE auto_trade_accounts ADD COLUMN lot_size REAL DEFAULT 0.01",
+            # gold_alerts columns
+            "ALTER TABLE gold_alerts ADD COLUMN target_price REAL DEFAULT 0",
+            # trade_signals table
+            "CREATE TABLE IF NOT EXISTS trade_signals (id INTEGER PRIMARY KEY AUTOINCREMENT, tg_id TEXT NOT NULL, direction TEXT, entry REAL, sl REAL, tp1 REAL, tp2 REAL, tp3 REAL, confidence REAL, status TEXT DEFAULT 'open', tp_hit INTEGER DEFAULT 0, sent_at TIMESTAMP, closed_at TIMESTAMP)",
+        ]
+        for ddl in all_migrations:
             try:
                 conn.execute(_text(ddl))
                 conn.commit()
             except Exception:
                 pass
-    for _c, _d in [
-        ("meta_token", "ALTER TABLE auto_trade_accounts ADD COLUMN meta_token TEXT DEFAULT ''"),
-        ("meta_account_id", "ALTER TABLE auto_trade_accounts ADD COLUMN meta_account_id TEXT DEFAULT ''"),
-        ("lot_size", "ALTER TABLE auto_trade_accounts ADD COLUMN lot_size REAL DEFAULT 0.01"),
-    ]:
-        try:
-            conn.execute(_text(_d))
-            conn.commit()
-        except Exception:
-            pass
-    for _nc, _nd in [
-        ("loyalty_points", "ALTER TABLE trading_users ADD COLUMN loyalty_points INTEGER DEFAULT 0"),
-        ("bonus_signals",  "ALTER TABLE trading_users ADD COLUMN bonus_signals INTEGER DEFAULT 0"),
-        ("vip_expires_at","ALTER TABLE trading_users ADD COLUMN vip_expires_at TIMESTAMP"),
-        ("referred_by",   "ALTER TABLE trading_users ADD COLUMN referred_by TEXT DEFAULT ''"),
-    ]:
-        try:
-            conn.execute(_text(_nd))
-            conn.commit()
-        except Exception:
-            pass
-    try:
-        conn.execute(_text("CREATE TABLE IF NOT EXISTS trade_signals (id INTEGER PRIMARY KEY AUTOINCREMENT, tg_id TEXT NOT NULL, direction TEXT, entry REAL, sl REAL, tp1 REAL, tp2 REAL, tp3 REAL, confidence REAL, status TEXT DEFAULT 'open', tp_hit INTEGER DEFAULT 0, sent_at TIMESTAMP, closed_at TIMESTAMP)"))
-        conn.commit()
-    except Exception:
-        pass
-    for _gc, _gd in [
-        ("target_price", "ALTER TABLE gold_alerts ADD COLUMN target_price REAL DEFAULT 0"),
-    ]:
-        try:
-            conn.execute(_text(_gd))
-            conn.commit()
-        except Exception:
-            pass
 _migrate_db()
 
 SIGNAL_FILE = "data/latest_signal.json"
@@ -2558,55 +2539,57 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
 
-    if data == "start":
-        await start(update, context)
-    elif data == "live_gold":
-        await handle_live_gold(query)
-    elif data == "get_signal":
-        await handle_get_signal(query, user_id)
-    elif data == "auto_trading_menu":
-        await handle_auto_trading_menu(query, user_id)
-    elif data == "at_help":
-        await handle_at_help(query, user_id)
-    elif data == "at_enable":
-        await handle_at_enable(query, user_id)
-    elif data == "at_disable":
-        await handle_at_disable(query, user_id)
-    elif data == "at_delete":
-        await handle_at_delete(query, user_id)
-    elif data == "analyze_chart":
-        await handle_chart_analysis(query, user_id)
-    elif data == "results_menu":
-        await query.edit_message_text("🏆 اختر القسم لمشاهدة النتائج:", reply_markup=results_menu())
-    elif data == "res_xauusd":
-        images = [
-            "attached_assets/Screenshot_٢٠٢٦٠٢٠٥-١٣٠٧١٨_Exness_1770289719459.jpg",
-            "attached_assets/Screenshot_٢٠٢٦٠٢٠٥-١٣٠٦٣٨_Exness_1770289719574.jpg"
-        ]
-        sent = False
-        for img in images:
-            if os.path.exists(img):
-                with open(img, 'rb') as f:
-                    await query.message.reply_photo(photo=f, caption="📊 نتائج تداول الذهب XAUUSD")
-                sent = True
-        if not sent:
-            await query.edit_message_text("📊 صور النتائج قيد الرفع. تواصل معنا: " + WHATSAPP_LINK, reply_markup=back_menu())
-    elif data == "res_btc":
-        images = [
-            "attached_assets/Screenshot_٢٠٢٦٠٢٠٥-١٣٠٦٥٢_Exness_1770289719541.jpg",
-            "attached_assets/Screenshot_٢٠٢٦٠٢٠٥-١٣٠٦١٠_Exness_1770289719599.jpg",
-            "attached_assets/Screenshot_٢٠٢٦٠٢٠٥-١٣٠٥٤٧_Exness_1770289719628.jpg"
-        ]
-        sent = False
-        for img in images:
-            if os.path.exists(img):
-                with open(img, 'rb') as f:
-                    await query.message.reply_photo(photo=f, caption="₿ نتائج تداول البيتكوين BTC")
-                sent = True
-        if not sent:
-            await query.edit_message_text("₿ صور النتائج قيد الرفع. تواصل معنا: " + WHATSAPP_LINK, reply_markup=back_menu())
-    elif data == "pattern_recognition":
-        msg = """📊 *ميزة التعرف على الأنماط*
+
+    try:
+        if data == "start":
+            await start(update, context)
+        elif data == "live_gold":
+            await handle_live_gold(query)
+        elif data == "get_signal":
+            await handle_get_signal(query, user_id)
+        elif data == "auto_trading_menu":
+            await handle_auto_trading_menu(query, user_id)
+        elif data == "at_help":
+            await handle_at_help(query, user_id)
+        elif data == "at_enable":
+            await handle_at_enable(query, user_id)
+        elif data == "at_disable":
+            await handle_at_disable(query, user_id)
+        elif data == "at_delete":
+            await handle_at_delete(query, user_id)
+        elif data == "analyze_chart":
+            await handle_chart_analysis(query, user_id)
+        elif data == "results_menu":
+            await query.edit_message_text("🏆 اختر القسم لمشاهدة النتائج:", reply_markup=results_menu())
+        elif data == "res_xauusd":
+            images = [
+                "attached_assets/Screenshot_٢٠٢٦٠٢٠٥-١٣٠٧١٨_Exness_1770289719459.jpg",
+                "attached_assets/Screenshot_٢٠٢٦٠٢٠٥-١٣٠٦٣٨_Exness_1770289719574.jpg"
+            ]
+            sent = False
+            for img in images:
+                if os.path.exists(img):
+                    with open(img, 'rb') as f:
+                        await query.message.reply_photo(photo=f, caption="📊 نتائج تداول الذهب XAUUSD")
+                    sent = True
+            if not sent:
+                await query.edit_message_text("📊 صور النتائج قيد الرفع. تواصل معنا: " + WHATSAPP_LINK, reply_markup=back_menu())
+        elif data == "res_btc":
+            images = [
+                "attached_assets/Screenshot_٢٠٢٦٠٢٠٥-١٣٠٦٥٢_Exness_1770289719541.jpg",
+                "attached_assets/Screenshot_٢٠٢٦٠٢٠٥-١٣٠٦١٠_Exness_1770289719599.jpg",
+                "attached_assets/Screenshot_٢٠٢٦٠٢٠٥-١٣٠٥٤٧_Exness_1770289719628.jpg"
+            ]
+            sent = False
+            for img in images:
+                if os.path.exists(img):
+                    with open(img, 'rb') as f:
+                        await query.message.reply_photo(photo=f, caption="₿ نتائج تداول البيتكوين BTC")
+                    sent = True
+            if not sent:
+                await query.edit_message_text("₿ صور النتائج قيد الرفع. تواصل معنا: " + WHATSAPP_LINK, reply_markup=back_menu())
+        elif data == "pattern_recognition":
+            msg = """📊 *ميزة التعرف على الأنماط*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 *ما يكشفه النظام تلقائياً:*
 • نموذج الرأس والكتفين
@@ -2621,9 +2604,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚡ *التنبيه:* فور اكتمال أي نمط فني مهم
 
 🚀 ميزة VIP حصرية!"""
-        await query.edit_message_text(msg, reply_markup=back_menu(), parse_mode="Markdown")
-    elif data == "plans":
-        msg = """🎯 *خطط الاشتراك - اختر ما يناسبك*
+            await query.edit_message_text(msg, reply_markup=back_menu(), parse_mode="Markdown")
+        elif data == "plans":
+            msg = """🎯 *خطط الاشتراك - اختر ما يناسبك*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 🥉 *الخطة الفضية — 10$*
@@ -2653,16 +2636,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🔥 *الأكثر مبيعاً: الخطة الماسية!*
 ⚠️ الكورسات مدفوعة بشكل منفصل وليست ضمن الخطط"""
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🥉 الفضية 10$", callback_data="plan_basic"),
-             InlineKeyboardButton("🥈 الذهبية 20$", callback_data="plan_pro")],
-            [InlineKeyboardButton("💎 الماسية VIP 50$", callback_data="plan_vip")],
-            [InlineKeyboardButton("💬 اشترك الآن واتساب", url=WHATSAPP_LINK)],
-            [InlineKeyboardButton("🔙 العودة", callback_data="start")]
-        ])
-        await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
-    elif data == "plan_basic":
-        msg = """🥉 *الخطة الفضية — 10$ / شهر*
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🥉 الفضية 10$", callback_data="plan_basic"),
+                 InlineKeyboardButton("🥈 الذهبية 20$", callback_data="plan_pro")],
+                [InlineKeyboardButton("💎 الماسية VIP 50$", callback_data="plan_vip")],
+                [InlineKeyboardButton("💬 اشترك الآن واتساب", url=WHATSAPP_LINK)],
+                [InlineKeyboardButton("🔙 العودة", callback_data="start")]
+            ])
+            await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
+        elif data == "plan_basic":
+            msg = """🥉 *الخطة الفضية — 10$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ سعر الذهب الحي لحظة بلحظة (XAUUSD)
 ✅ 3 إشارات يومياً (كاملة مع الأرقام)
@@ -2677,14 +2660,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚠️ الكورسات مدفوعة بشكل منفصل
 
 💬 *تواصل معنا لتفعيل الفضية*"""
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💬 اشترك الفضية 10$", url=WHATSAPP_LINK)],
-            [InlineKeyboardButton("⬆️ الذهبية 20$", callback_data="plan_pro"),
-             InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
-        ])
-        await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
-    elif data == "plan_pro":
-        msg = """🥈 *الخطة الذهبية — 20$ / شهر*
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💬 اشترك الفضية 10$", url=WHATSAPP_LINK)],
+                [InlineKeyboardButton("⬆️ الذهبية 20$", callback_data="plan_pro"),
+                 InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
+            ])
+            await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
+        elif data == "plan_pro":
+            msg = """🥈 *الخطة الذهبية — 20$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ سعر الذهب الحي لحظة بلحظة
 ✅ 10 إشارات يومياً (كاملة)
@@ -2699,14 +2682,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚠️ الكورسات مدفوعة بشكل منفصل
 
 💬 *تواصل معنا لتفعيل الذهبية*"""
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💬 اشترك الذهبية 20$", url=WHATSAPP_LINK)],
-            [InlineKeyboardButton("⬆️ الماسية 50$", callback_data="plan_vip"),
-             InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
-        ])
-        await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
-    elif data == "plan_vip":
-        msg = """💎 *الخطة الماسية VIP — 50$ / شهر*
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💬 اشترك الذهبية 20$", url=WHATSAPP_LINK)],
+                [InlineKeyboardButton("⬆️ الماسية 50$", callback_data="plan_vip"),
+                 InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
+            ])
+            await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
+        elif data == "plan_vip":
+            msg = """💎 *الخطة الماسية VIP — 50$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ سعر الذهب الحي لحظة بلحظة
 ✅ إشارات تلقائية غير محدودة 24/7
@@ -2720,192 +2703,192 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔥 *الأكثر مبيعاً والأفضل قيمة!*
 💎 كل شيء غير محدود — مثالي للمتداول الجاد
 ⚠️ الكورسات مدفوعة بشكل منفصل"""
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔥 اشترك الماسية الآن 50$", url=WHATSAPP_LINK)],
-            [InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
-        ])
-        await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
-    elif data == "subscription":
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🥉 الفضية 10$", callback_data="plan_basic"),
-             InlineKeyboardButton("🥈 الذهبية 20$", callback_data="plan_pro")],
-            [InlineKeyboardButton("💎 الماسية VIP 50$", callback_data="plan_vip")],
-            [InlineKeyboardButton("💬 اشترك الآن واتساب", url=WHATSAPP_LINK)],
-            [InlineKeyboardButton("🔙 العودة", callback_data="start")]
-        ])
-        await query.edit_message_text("🎯 *اختر خطة الاشتراك المناسبة:*\n⚠️ الكورسات مدفوعة بشكل منفصل", reply_markup=markup, parse_mode="Markdown")
-    elif data == "payment_methods":
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟡 Binance Pay", callback_data="pay_binance")],
-            [InlineKeyboardButton("💳 MasterCard", callback_data="pay_mastercard")],
-            [InlineKeyboardButton("🔵 PayPal", callback_data="pay_paypal")],
-            [InlineKeyboardButton("🔴 فودافون كاش", callback_data="pay_vodafone")],
-            [InlineKeyboardButton("🎯 خطط الاشتراك", callback_data="plans"),
-             InlineKeyboardButton("🔙 العودة", callback_data="start")],
-        ])
-        await query.edit_message_text(
-            "💳 *طرق الدفع المتاحة*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "اختر طريقة الدفع التي تناسبك.\n"
-            "📲 جميع عمليات الدفع تتم مع الدعم عبر واتساب.",
-            reply_markup=markup, parse_mode="Markdown"
-        )
-    elif data in ("pay_binance", "pay_mastercard", "pay_paypal", "pay_vodafone"):
-        names = {
-            "pay_binance":    ("🟡 Binance Pay",   "Binance Pay"),
-            "pay_mastercard": ("💳 MasterCard",     "MasterCard"),
-            "pay_paypal":     ("🔵 PayPal",         "PayPal"),
-            "pay_vodafone":   ("🔴 فودافون كاش",    "فودافون كاش"),
-        }
-        icon, method = names[data]
-        await query.edit_message_text(
-            icon + " *الدفع عبر " + method + "*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "💬 الدفع يتم بشكل مباشر مع فريق الدعم عبر *واتساب*:\n\n"
-            "1️⃣ اضغط الزر أدناه للتواصل مع الدعم\n"
-            "2️⃣ أخبرهم أنك تريد الدفع عبر *" + method + "*\n"
-            "3️⃣ سيرسلون لك تفاصيل الدفع الكاملة\n"
-            "4️⃣ بعد الدفع أرسل إيصال التحويل\n"
-            "5️⃣ يتم تفعيل VIP خلال دقائق ✅\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "⏱ وقت التفعيل: *دقائق فقط* بعد تأكيد الدفع",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("💬 تواصل واتساب الآن 🚀", url=WHATSAPP_LINK)],
-                [InlineKeyboardButton("🔙 طرق الدفع", callback_data="payment_methods"),
-                 InlineKeyboardButton("🏠 القائمة", callback_data="start")],
-            ]),
-            parse_mode="Markdown"
-        )
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔥 اشترك الماسية الآن 50$", url=WHATSAPP_LINK)],
+                [InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
+            ])
+            await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
+        elif data == "subscription":
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🥉 الفضية 10$", callback_data="plan_basic"),
+                 InlineKeyboardButton("🥈 الذهبية 20$", callback_data="plan_pro")],
+                [InlineKeyboardButton("💎 الماسية VIP 50$", callback_data="plan_vip")],
+                [InlineKeyboardButton("💬 اشترك الآن واتساب", url=WHATSAPP_LINK)],
+                [InlineKeyboardButton("🔙 العودة", callback_data="start")]
+            ])
+            await query.edit_message_text("🎯 *اختر خطة الاشتراك المناسبة:*\n⚠️ الكورسات مدفوعة بشكل منفصل", reply_markup=markup, parse_mode="Markdown")
+        elif data == "payment_methods":
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🟡 Binance Pay", callback_data="pay_binance")],
+                [InlineKeyboardButton("💳 MasterCard", callback_data="pay_mastercard")],
+                [InlineKeyboardButton("🔵 PayPal", callback_data="pay_paypal")],
+                [InlineKeyboardButton("🔴 فودافون كاش", callback_data="pay_vodafone")],
+                [InlineKeyboardButton("🎯 خطط الاشتراك", callback_data="plans"),
+                 InlineKeyboardButton("🔙 العودة", callback_data="start")],
+            ])
+            await query.edit_message_text(
+                "💳 *طرق الدفع المتاحة*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "اختر طريقة الدفع التي تناسبك.\n"
+                "📲 جميع عمليات الدفع تتم مع الدعم عبر واتساب.",
+                reply_markup=markup, parse_mode="Markdown"
+            )
+        elif data in ("pay_binance", "pay_mastercard", "pay_paypal", "pay_vodafone"):
+            names = {
+                "pay_binance":    ("🟡 Binance Pay",   "Binance Pay"),
+                "pay_mastercard": ("💳 MasterCard",     "MasterCard"),
+                "pay_paypal":     ("🔵 PayPal",         "PayPal"),
+                "pay_vodafone":   ("🔴 فودافون كاش",    "فودافون كاش"),
+            }
+            icon, method = names[data]
+            await query.edit_message_text(
+                icon + " *الدفع عبر " + method + "*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "💬 الدفع يتم بشكل مباشر مع فريق الدعم عبر *واتساب*:\n\n"
+                "1️⃣ اضغط الزر أدناه للتواصل مع الدعم\n"
+                "2️⃣ أخبرهم أنك تريد الدفع عبر *" + method + "*\n"
+                "3️⃣ سيرسلون لك تفاصيل الدفع الكاملة\n"
+                "4️⃣ بعد الدفع أرسل إيصال التحويل\n"
+                "5️⃣ يتم تفعيل VIP خلال دقائق ✅\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "⏱ وقت التفعيل: *دقائق فقط* بعد تأكيد الدفع",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💬 تواصل واتساب الآن 🚀", url=WHATSAPP_LINK)],
+                    [InlineKeyboardButton("🔙 طرق الدفع", callback_data="payment_methods"),
+                     InlineKeyboardButton("🏠 القائمة", callback_data="start")],
+                ]),
+                parse_mode="Markdown"
+            )
 
-    elif data == "my_account":
-        _db = SessionLocal()
-        _u = _db.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
-        _db.close()
-        if not _u:
-            await query.answer("❌ حدث خطأ")
-            return
-        _sigs_left = trial_remaining_signals(_u)
-        if _u.is_vip:
-            _status = "💎 VIP مفعّل — إشارات غير محدودة"
-            _btn = InlineKeyboardButton("📞 تواصل مع الدعم", url=WHATSAPP_LINK)
-        elif _sigs_left > 0:
-            _status = "🎁 تجربة مجانية — " + str(_sigs_left) + " إشارة متبقية"
-            _btn = InlineKeyboardButton("💎 اشترك VIP الآن", callback_data="plans")
-        else:
-            _status = "⏰ انتهت التجربة المجانية"
-            _btn = InlineKeyboardButton("💎 اشترك VIP الآن 🔥", callback_data="plans")
-        _sigs_req = _u.signals_requested or 0
-        _joined = _u.created_at.strftime("%Y-%m-%d") if _u.created_at else "—"
-        _msg = (
-            "👤 *حسابي*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "📛 الاسم: " + (_u.first_name or "غير محدد") + "\n"
-            "🆔 ID: `" + str(user_id) + "`\n"
-            "📅 تاريخ الانضمام: `" + _joined + "`\n"
-            "📊 الحالة: " + _status + "\n"
-            "⚡ إشارات مطلوبة: `" + str(_sigs_req) + "`\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━"
-        )
-        await query.edit_message_text(
-            _msg,
-            reply_markup=InlineKeyboardMarkup([
-                [_btn],
-                [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="start")],
-            ]),
-            parse_mode="Markdown"
-        )
+        elif data == "my_account":
+            _db = SessionLocal()
+            _u = _db.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
+            _db.close()
+            if not _u:
+                await query.answer("❌ حدث خطأ")
+                return
+            _sigs_left = trial_remaining_signals(_u)
+            if _u.is_vip:
+                _status = "💎 VIP مفعّل — إشارات غير محدودة"
+                _btn = InlineKeyboardButton("📞 تواصل مع الدعم", url=WHATSAPP_LINK)
+            elif _sigs_left > 0:
+                _status = "🎁 تجربة مجانية — " + str(_sigs_left) + " إشارة متبقية"
+                _btn = InlineKeyboardButton("💎 اشترك VIP الآن", callback_data="plans")
+            else:
+                _status = "⏰ انتهت التجربة المجانية"
+                _btn = InlineKeyboardButton("💎 اشترك VIP الآن 🔥", callback_data="plans")
+            _sigs_req = _u.signals_requested or 0
+            _joined = _u.created_at.strftime("%Y-%m-%d") if _u.created_at else "—"
+            _msg = (
+                "👤 *حسابي*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "📛 الاسم: " + (_u.first_name or "غير محدد") + "\n"
+                "🆔 ID: `" + str(user_id) + "`\n"
+                "📅 تاريخ الانضمام: `" + _joined + "`\n"
+                "📊 الحالة: " + _status + "\n"
+                "⚡ إشارات مطلوبة: `" + str(_sigs_req) + "`\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━"
+            )
+            await query.edit_message_text(
+                _msg,
+                reply_markup=InlineKeyboardMarkup([
+                    [_btn],
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="start")],
+                ]),
+                parse_mode="Markdown"
+            )
 
-    elif data == "risk_calc":
-        await query.edit_message_text(
-            "🧮 *حاسبة المخاطرة*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "احسب حجم اللوت المناسب لحسابك:\n\n"
-            "📌 *صيغة الحساب:*\n"
-            "اللوت = (رأس المال × نسبة الخطر%) ÷ (حجم وقف الخسارة × 10)\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "💡 *أمثلة عملية:*\n\n"
-            "🔹 حساب $500 | خطر 1% | SL 20 نقطة:\n"
-            "   اللوت = (500 × 0.01) ÷ (20 × 10) = *0.025*\n\n"
-            "🔹 حساب $1000 | خطر 2% | SL 30 نقطة:\n"
-            "   اللوت = (1000 × 0.02) ÷ (30 × 10) = *0.067*\n\n"
-            "🔹 حساب $300 | خطر 1% | SL 15 نقطة:\n"
-            "   اللوت = (300 × 0.01) ÷ (15 × 10) = *0.02*\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "⚠️ *قواعد إدارة المخاطر:*\n"
-            "• لا تخاطر بأكثر من 1-2% في صفقة واحدة\n"
-            "• حد خسائر اليوم: 5% من الحساب\n"
-            "• لا تضع أكثر من 3 صفقات في نفس الوقت",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔔 ضبط تنبيه سعر", callback_data="set_alert")],
-                [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="start")],
-            ]),
-            parse_mode="Markdown"
-        )
+        elif data == "risk_calc":
+            await query.edit_message_text(
+                "🧮 *حاسبة المخاطرة*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "احسب حجم اللوت المناسب لحسابك:\n\n"
+                "📌 *صيغة الحساب:*\n"
+                "اللوت = (رأس المال × نسبة الخطر%) ÷ (حجم وقف الخسارة × 10)\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "💡 *أمثلة عملية:*\n\n"
+                "🔹 حساب $500 | خطر 1% | SL 20 نقطة:\n"
+                "   اللوت = (500 × 0.01) ÷ (20 × 10) = *0.025*\n\n"
+                "🔹 حساب $1000 | خطر 2% | SL 30 نقطة:\n"
+                "   اللوت = (1000 × 0.02) ÷ (30 × 10) = *0.067*\n\n"
+                "🔹 حساب $300 | خطر 1% | SL 15 نقطة:\n"
+                "   اللوت = (300 × 0.01) ÷ (15 × 10) = *0.02*\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "⚠️ *قواعد إدارة المخاطر:*\n"
+                "• لا تخاطر بأكثر من 1-2% في صفقة واحدة\n"
+                "• حد خسائر اليوم: 5% من الحساب\n"
+                "• لا تضع أكثر من 3 صفقات في نفس الوقت",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔔 ضبط تنبيه سعر", callback_data="set_alert")],
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="start")],
+                ]),
+                parse_mode="Markdown"
+            )
 
-    elif data == "session_timer":
-        await handle_session_timer(query)
-    elif data == "gold_news":
-        await handle_gold_news(query)
-    elif data == "referral_menu":
-        db_ref = SessionLocal()
-        u_ref = db_ref.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
-        db_ref.close()
-        bot_info = await context.bot.get_me()
-        code = gen_ref_code(str(user_id))
-        link = "https://t.me/" + bot_info.username + "?start=ref_" + code
-        pts = (u_ref.loyalty_points or 0) if u_ref else 0
-        bonus = (u_ref.bonus_signals or 0) if u_ref else 0
-        await query.edit_message_text(
-            "🎁 *الإحالة ونقاط الولاء*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🔗 *رابطك الشخصي:*\n"
-            + link + "\n\n"
-            "⭐ نقاطك: " + str(pts) + " | 🎁 مكافآت: " + str(bonus) + " إشارة\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🏆 *كيف يعمل؟*\n"
-            "• كل صديق يسجل عبر رابطك → +50 نقطة + إشارة مجانية لك\n"
-            "• صديقك يحصل على +2 إشارة تجربة إضافية\n"
-            "• كل 100 نقطة → إشارة مجانية 🎯",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⭐ نقاطي التفصيلية", callback_data="my_points")],
-                [InlineKeyboardButton("🔙 القائمة", callback_data="start")],
-            ]),
-            parse_mode="Markdown"
-        )
-    elif data == "my_points":
-        db_pts = SessionLocal()
-        u_pts = db_pts.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
-        db_pts.close()
-        pts = (u_pts.loyalty_points or 0) if u_pts else 0
-        bonus = (u_pts.bonus_signals or 0) if u_pts else 0
-        next_b = 100 - (pts % 100) if (pts % 100) != 0 else 100
-        filled = min(10, (pts % 100) // 10)
-        bar = ("█" * filled) + ("░" * (10 - filled))
-        await query.edit_message_text(
-            "⭐ *نقاط الولاء*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🏆 نقاطك: " + str(pts) + " نقطة\n"
-            "🎁 إشارات مكافأة: " + str(bonus) + " إشارة\n\n"
-            "[" + bar + "] " + str(pts % 100) + "/100\n"
-            "⏳ تحتاج " + str(next_b) + " نقطة للإشارة التالية\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "💡 *كيف تكسب نقاط؟*\n"
-            "• طلب إشارة تداول → +5 نقاط\n"
-            "• دعوة صديق → +50 نقطة\n"
-            "• كل 100 نقطة → إشارة مجانية 🎁",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🎁 ادعُ صديقاً", callback_data="referral_menu")],
-                [InlineKeyboardButton("🔙 القائمة", callback_data="start")],
-            ]),
-            parse_mode="Markdown"
-        )
-    elif data == "admin_dashboard":
-        await handle_admin_dashboard(query, user_id)
-    elif data == "admin_broadcast_prompt":
-        await admin_broadcast_prompt(query, user_id)
+        elif data == "session_timer":
+            await handle_session_timer(query)
+        elif data == "gold_news":
+            await handle_gold_news(query)
+        elif data == "referral_menu":
+            db_ref = SessionLocal()
+            u_ref = db_ref.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
+            db_ref.close()
+            bot_info = await context.bot.get_me()
+            code = gen_ref_code(str(user_id))
+            link = "https://t.me/" + bot_info.username + "?start=ref_" + code
+            pts = (u_ref.loyalty_points or 0) if u_ref else 0
+            bonus = (u_ref.bonus_signals or 0) if u_ref else 0
+            await query.edit_message_text(
+                "🎁 *الإحالة ونقاط الولاء*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🔗 *رابطك الشخصي:*\n"
+                + link + "\n\n"
+                "⭐ نقاطك: " + str(pts) + " | 🎁 مكافآت: " + str(bonus) + " إشارة\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🏆 *كيف يعمل؟*\n"
+                "• كل صديق يسجل عبر رابطك → +50 نقطة + إشارة مجانية لك\n"
+                "• صديقك يحصل على +2 إشارة تجربة إضافية\n"
+                "• كل 100 نقطة → إشارة مجانية 🎯",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⭐ نقاطي التفصيلية", callback_data="my_points")],
+                    [InlineKeyboardButton("🔙 القائمة", callback_data="start")],
+                ]),
+                parse_mode="Markdown"
+            )
+        elif data == "my_points":
+            db_pts = SessionLocal()
+            u_pts = db_pts.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
+            db_pts.close()
+            pts = (u_pts.loyalty_points or 0) if u_pts else 0
+            bonus = (u_pts.bonus_signals or 0) if u_pts else 0
+            next_b = 100 - (pts % 100) if (pts % 100) != 0 else 100
+            filled = min(10, (pts % 100) // 10)
+            bar = ("█" * filled) + ("░" * (10 - filled))
+            await query.edit_message_text(
+                "⭐ *نقاط الولاء*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🏆 نقاطك: " + str(pts) + " نقطة\n"
+                "🎁 إشارات مكافأة: " + str(bonus) + " إشارة\n\n"
+                "[" + bar + "] " + str(pts % 100) + "/100\n"
+                "⏳ تحتاج " + str(next_b) + " نقطة للإشارة التالية\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "💡 *كيف تكسب نقاط؟*\n"
+                "• طلب إشارة تداول → +5 نقاط\n"
+                "• دعوة صديق → +50 نقطة\n"
+                "• كل 100 نقطة → إشارة مجانية 🎁",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🎁 ادعُ صديقاً", callback_data="referral_menu")],
+                    [InlineKeyboardButton("🔙 القائمة", callback_data="start")],
+                ]),
+                parse_mode="Markdown"
+            )
+        elif data == "admin_dashboard":
+            await handle_admin_dashboard(query, user_id)
+        elif data == "admin_broadcast_prompt":
+            await admin_broadcast_prompt(query, user_id)
 
-    elif data == "admin_marketing":
-        msg = """💼 *الجانب الإداري والتسويقي*
+        elif data == "admin_marketing":
+            msg = """💼 *الجانب الإداري والتسويقي*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 📈 *أدوات تسويقية:*
 • روابط إحالة مخصصة مع عمولات
@@ -2913,48 +2896,48 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 🎁 *مكافآت شهرية* لأفضل المسوقين
 🚀 *كن شريكاً في النجاح!*"""
-        await query.edit_message_text(msg, reply_markup=back_menu(), parse_mode="Markdown")
-    elif data == "strategy_analysis":
-        await handle_strategy_analysis(query, user_id)
-    elif data == "about":
-        await query.edit_message_text(
-            "🏆 *بوت التداول الذكي — XAUUSD Pro*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "⚡ *لماذا نحن الأفضل؟*\n\n"
-            "🧠 *ذكاء اصطناعي متعدد المصادر*\n"
-            "نستخدم 12 نموذجاً تحليلياً في آنٍ واحد — RSI، MACD، Bollinger، Fibonacci، ATR، Stochastic + 6 نماذج ذكاء اصطناعي مخصصة — لتوليد إشارة واحدة دقيقة بنسبة ثقة تصل إلى 79%\n\n"
-            "📊 *أرقام حقيقية لا وعود فارغة*\n"
-            "• دقة التوقع: 65%–79% موثّقة\n"
-            "• أكثر من 500 إشارة ناجحة\n"
-            "• متابعة لحظية لسعر الذهب 24/7\n\n"
-            "🤖 *ميزات حصرية لأعضاء VIP*\n"
-            "• إشارات XAUUSD فورية بدخول وTP وSL\n"
-            "• تحليل شارت بالذكاء الاصطناعي\n"
-            "• تداول آلي متصل بـ MT5 عبر MetaAPI\n"
-            "• تنبيهات سعر مخصصة 🔔\n"
-            "• حاسبة مخاطرة متقدمة 🧮\n"
-            "• ملخص يومي كل صباح 🌅\n\n"
-            "💎 *من يستخدم هذا البوت؟*\n"
-            "متداولون محترفون ومبتدئون من 15+ دولة عربية يثقون بإشاراتنا يومياً لتنفيذ صفقاتهم.\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🚀 *ابدأ الآن — الإشارة الأولى مجانية!*",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("💎 اشترك VIP الآن", callback_data="plans")],
-                [InlineKeyboardButton("⚡ جرّب إشارة الآن", callback_data="get_signal")],
-                [InlineKeyboardButton("📞 تواصل مع الدعم", url=WHATSAPP_LINK)],
-                [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="start")],
-            ]),
-            parse_mode="Markdown"
-        )
+            await query.edit_message_text(msg, reply_markup=back_menu(), parse_mode="Markdown")
+        elif data == "strategy_analysis":
+            await handle_strategy_analysis(query, user_id)
+        elif data == "about":
+            await query.edit_message_text(
+                "🏆 *بوت التداول الذكي — XAUUSD Pro*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "⚡ *لماذا نحن الأفضل؟*\n\n"
+                "🧠 *ذكاء اصطناعي متعدد المصادر*\n"
+                "نستخدم 12 نموذجاً تحليلياً في آنٍ واحد — RSI، MACD، Bollinger، Fibonacci، ATR، Stochastic + 6 نماذج ذكاء اصطناعي مخصصة — لتوليد إشارة واحدة دقيقة بنسبة ثقة تصل إلى 79%\n\n"
+                "📊 *أرقام حقيقية لا وعود فارغة*\n"
+                "• دقة التوقع: 65%–79% موثّقة\n"
+                "• أكثر من 500 إشارة ناجحة\n"
+                "• متابعة لحظية لسعر الذهب 24/7\n\n"
+                "🤖 *ميزات حصرية لأعضاء VIP*\n"
+                "• إشارات XAUUSD فورية بدخول وTP وSL\n"
+                "• تحليل شارت بالذكاء الاصطناعي\n"
+                "• تداول آلي متصل بـ MT5 عبر MetaAPI\n"
+                "• تنبيهات سعر مخصصة 🔔\n"
+                "• حاسبة مخاطرة متقدمة 🧮\n"
+                "• ملخص يومي كل صباح 🌅\n\n"
+                "💎 *من يستخدم هذا البوت؟*\n"
+                "متداولون محترفون ومبتدئون من 15+ دولة عربية يثقون بإشاراتنا يومياً لتنفيذ صفقاتهم.\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🚀 *ابدأ الآن — الإشارة الأولى مجانية!*",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💎 اشترك VIP الآن", callback_data="plans")],
+                    [InlineKeyboardButton("⚡ جرّب إشارة الآن", callback_data="get_signal")],
+                    [InlineKeyboardButton("📞 تواصل مع الدعم", url=WHATSAPP_LINK)],
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="start")],
+                ]),
+                parse_mode="Markdown"
+            )
 
-    elif data == "strategy_analysis":
-        await handle_strategy_analysis(query, user_id)
-    elif data == "about":
-        db = SessionLocal()
-        user_count = db.query(TradingUser).count()
-        signal_count = db.query(Signal).count()
-        db.close()
-        msg = f"""🤖 *نظام التداول الذكي v7.0*
+        elif data == "strategy_analysis":
+            await handle_strategy_analysis(query, user_id)
+        elif data == "about":
+            db = SessionLocal()
+            user_count = db.query(TradingUser).count()
+            signal_count = db.query(Signal).count()
+            db.close()
+            msg = f"""🤖 *نظام التداول الذكي v7.0*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 *الميزات التقنية:*
 • 15 مفتاح ذكاء اصطناعي مع rotation تلقائي
@@ -2968,47 +2951,54 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • الإشارات المولدة: {signal_count}
 
 *الدعم:* {WHATSAPP_LINK}"""
-        await query.edit_message_text(msg, reply_markup=back_menu(), parse_mode="Markdown")
-    elif data == "courses_main":
-        course_keys = list(TRADING_COURSES.keys())
-        buttons = []
-        for key in course_keys:
-            c = TRADING_COURSES[key]
-            buttons.append([InlineKeyboardButton(f"{c['title']} - {c['price']}ج", callback_data=f"c_{key}")])
-        buttons.append([InlineKeyboardButton("◀️ القائمة الرئيسية", callback_data="start")])
-        await query.edit_message_text(
-            "🎓 *كورسات التداول VIP*\n\nاختر التخصص:",
-            reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown"
-        )
-    elif data.startswith("c_"):
-        key = data[2:]
-        if key in TRADING_COURSES:
-            course = TRADING_COURSES[key]
-            courses_list = course["courses"]
-            context.user_data["courses_list"] = courses_list
-            buttons = [[InlineKeyboardButton(f"⚡ {c}", callback_data=f"ci_{i}")] for i, c in enumerate(courses_list[:20])]
-            buttons.append([InlineKeyboardButton("💬 اشتري الكورس واتساب", url=WHATSAPP_LINK)])
-            buttons.append([InlineKeyboardButton("◀️ الأقسام", callback_data="courses_main")])
-            text = f"🏅 *{course['title']}*\n\n📝 {course['description']}\n\n💰 *السعر:* {course['price']} جنيه\n━━━━━━━━━━━━━━\n🎬 *الدروس المتاحة:*"
-            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
-    elif data.startswith("ci_"):
-        idx = int(data[3:])
-        courses_list = context.user_data.get("courses_list", [])
-        if idx < len(courses_list):
-            msg = f"""✅ *الكورس المختار:*
+            await query.edit_message_text(msg, reply_markup=back_menu(), parse_mode="Markdown")
+        elif data == "courses_main":
+            course_keys = list(TRADING_COURSES.keys())
+            buttons = []
+            for key in course_keys:
+                c = TRADING_COURSES[key]
+                buttons.append([InlineKeyboardButton(f"{c['title']} - {c['price']}ج", callback_data=f"c_{key}")])
+            buttons.append([InlineKeyboardButton("◀️ القائمة الرئيسية", callback_data="start")])
+            await query.edit_message_text(
+                "🎓 *كورسات التداول VIP*\n\nاختر التخصص:",
+                reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown"
+            )
+        elif data.startswith("c_"):
+            key = data[2:]
+            if key in TRADING_COURSES:
+                course = TRADING_COURSES[key]
+                courses_list = course["courses"]
+                context.user_data["courses_list"] = courses_list
+                buttons = [[InlineKeyboardButton(f"⚡ {c}", callback_data=f"ci_{i}")] for i, c in enumerate(courses_list[:20])]
+                buttons.append([InlineKeyboardButton("💬 اشتري الكورس واتساب", url=WHATSAPP_LINK)])
+                buttons.append([InlineKeyboardButton("◀️ الأقسام", callback_data="courses_main")])
+                text = f"🏅 *{course['title']}*\n\n📝 {course['description']}\n\n💰 *السعر:* {course['price']} جنيه\n━━━━━━━━━━━━━━\n🎬 *الدروس المتاحة:*"
+                await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+        elif data.startswith("ci_"):
+            idx = int(data[3:])
+            courses_list = context.user_data.get("courses_list", [])
+            if idx < len(courses_list):
+                msg = f"""✅ *الكورس المختار:*
 
 ⚡ {courses_list[idx]}
 
 📝 مجموعة فيديوهات تطبيقية شاملة مع أمثلة حية.
 
 👇 تواصل معنا للشراء:"""
-            await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("💬 اشتري الآن واتساب", url=WHATSAPP_LINK)],
-                [InlineKeyboardButton("◀️ الأقسام", callback_data="courses_main")]
-            ]), parse_mode="Markdown")
-    elif data.startswith("auto_"):
-        await _handle_auto_buttons(query, data)
+                await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💬 اشتري الآن واتساب", url=WHATSAPP_LINK)],
+                    [InlineKeyboardButton("◀️ الأقسام", callback_data="courses_main")]
+                ]), parse_mode="Markdown")
+        elif data.startswith("auto_"):
+            await _handle_auto_buttons(query, data)
 
+    except Exception as e:
+        import traceback
+        logger.error(f"❌ button_handler error [{data}]: {e}\n{traceback.format_exc()}")
+        try:
+            await query.edit_message_text("❌ حدث خطأ غير متوقع. حاول مجدداً.", reply_markup=back_menu())
+        except Exception:
+            pass
 # ============================================================
 #  ADMIN COMMANDS
 # ============================================================
