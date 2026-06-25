@@ -154,6 +154,17 @@ def _migrate_db():
             conn.commit()
         except Exception:
             pass
+    for _nc, _nd in [
+        ("loyalty_points", "ALTER TABLE trading_users ADD COLUMN loyalty_points INTEGER DEFAULT 0"),
+        ("bonus_signals",  "ALTER TABLE trading_users ADD COLUMN bonus_signals INTEGER DEFAULT 0"),
+        ("vip_expires_at","ALTER TABLE trading_users ADD COLUMN vip_expires_at TIMESTAMP"),
+        ("referred_by",   "ALTER TABLE trading_users ADD COLUMN referred_by TEXT DEFAULT ''"),
+    ]:
+        try:
+            conn.execute(_text(_nd))
+            conn.commit()
+        except Exception:
+            pass
     for _gc, _gd in [
         ("target_price", "ALTER TABLE gold_alerts ADD COLUMN target_price REAL DEFAULT 0"),
     ]:
@@ -1027,6 +1038,10 @@ def vip_menu():
         [InlineKeyboardButton("🤖 تداول آلي Auto Trading 🤖", callback_data="auto_trading_menu")],
         [InlineKeyboardButton("🔔 تنبيه سعر", callback_data="set_alert"),
          InlineKeyboardButton("🧮 حاسبة المخاطرة", callback_data="risk_calc")],
+        [InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer"),
+         InlineKeyboardButton("📰 أخبار الذهب", callback_data="gold_news")],
+        [InlineKeyboardButton("🎁 الإحالة والنقاط", callback_data="referral_menu"),
+         InlineKeyboardButton("⭐ نقاطي", callback_data="my_points")],
         [InlineKeyboardButton("🏆 نتائج التوصيات", callback_data="results_menu"),
          InlineKeyboardButton("👤 حسابي", callback_data="my_account")],
         [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
@@ -1559,6 +1574,336 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================
+#  REFERRAL SYSTEM
+# ============================================================
+import hashlib as _hs
+
+def gen_ref_code(tg_id):
+    return "G" + str(abs(hash(str(tg_id))) % 100000).zfill(5)
+
+async def cmd_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = str(update.effective_user.id)
+    db = SessionLocal()
+    u = db.query(TradingUser).filter(TradingUser.tg_id == uid).first()
+    db.close()
+    if not u:
+        await update.message.reply_text("❌ ابدأ بـ /start أولاً")
+        return
+    bot_info = await context.bot.get_me()
+    code = gen_ref_code(uid)
+    link = "https://t.me/" + bot_info.username + "?start=ref_" + code
+    pts = u.loyalty_points or 0
+    bonus = u.bonus_signals or 0
+    await update.message.reply_text(
+        "🎁 *نظام الإحالة*\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "شارك رابطك الخاص وأكسب إشارات مجانية!\n\n"
+        "🔗 *رابطك الشخصي:*\n"
+        "`" + link + "`\n\n"
+        "📊 *إحصائياتك:*\n"
+        "⭐ نقاط الولاء: `" + str(pts) + "` نقطة\n"
+        "🎁 إشارات مكافأة: `" + str(bonus) + "` إشارة\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🏆 *كيف يعمل؟*\n"
+        "• كل صديق يسجل عبر رابطك → +50 نقطة لك + إشارة مجانية\n"
+        "• كل 100 نقطة → إشارة مجانية إضافية\n"
+        "• صديقك يحصل على +2 إشارة تجربة إضافية",
+        parse_mode="Markdown"
+    )
+
+
+# ============================================================
+#  SESSION TIMER
+# ============================================================
+from datetime import timezone as _tz, timedelta as _td
+
+SESSIONS_UTC = {
+    "Tokyo":    (0,  9),
+    "London":   (8,  17),
+    "New York": (13, 22),
+}
+
+def get_session_status():
+    now_utc = datetime.utcnow()
+    hour = now_utc.hour
+    results = []
+    for name, (open_h, close_h) in SESSIONS_UTC.items():
+        if open_h <= hour < close_h:
+            remaining = close_h - hour - 1
+            mins = 60 - now_utc.minute
+            results.append(("🟢", name, "مفتوحة", str(remaining) + "س " + str(mins) + "د"))
+        else:
+            if hour < open_h:
+                wait = open_h - hour
+            else:
+                wait = 24 - hour + open_h
+            results.append(("🔴", name, "مغلقة", "تفتح بعد " + str(wait) + "س"))
+    return results
+
+async def handle_session_timer(query):
+    sessions = get_session_status()
+    now = datetime.utcnow().strftime("%H:%M UTC")
+    lines = ["⏰ *مؤقت جلسات التداول*\n━━━━━━━━━━━━━━━━━━━━━━━━", "🕐 الوقت الآن: " + now + "\n"]
+    for icon, name, status, time_info in sessions:
+        lines.append(icon + " *" + name + "*: " + status + " — " + time_info)
+    lines.append("\n━━━━━━━━━━━━━━━━━━━━━━━━")
+    lines.append("💡 أفضل وقت للتداول: تداخل London & New York (13:00-17:00 UTC)")
+    await query.edit_message_text(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⚡ إشارة الآن", callback_data="get_signal"),
+             InlineKeyboardButton("🔙 القائمة", callback_data="start")],
+        ]),
+        parse_mode="Markdown"
+    )
+
+
+# ============================================================
+#  GOLD NEWS (RSS - free)
+# ============================================================
+import urllib.request as _ur
+import re as _re
+
+def fetch_gold_news():
+    try:
+        feeds = [
+            "https://feeds.finance.yahoo.com/rss/2.0/headline?s=GC%3DF&region=US&lang=en-US",
+            "https://www.kitco.com/rss/rss-gold.xml",
+        ]
+        for url in feeds:
+            try:
+                req = _ur.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with _ur.urlopen(req, timeout=5) as resp:
+                    content = resp.read().decode("utf-8", errors="ignore")
+                titles = _re.findall(r'<title><!\[CDATA\[(.*?)\]\]></title>|<title>(.*?)</title>', content)
+                results = []
+                for t1, t2 in titles:
+                    title = (t1 or t2).strip()
+                    if title and "gold" in title.lower() or "xau" in title.lower() or "metal" in title.lower():
+                        results.append(title)
+                if results:
+                    return results[:5]
+            except Exception:
+                continue
+        return []
+    except Exception:
+        return []
+
+async def handle_gold_news(query):
+    await query.edit_message_text("📰 جاري جلب آخر أخبار الذهب...", parse_mode="Markdown")
+    news = fetch_gold_news()
+    if news:
+        text = "📰 *آخر أخبار الذهب*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        for i, n in enumerate(news, 1):
+            text += str(i) + ". " + n[:100] + "\n\n"
+        text += "━━━━━━━━━━━━━━━━━━━━━━━━\n🔄 يتجدد كل ساعة | المصدر: Yahoo Finance / Kitco"
+    else:
+        text = ("📰 *آخر أخبار الذهب*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "⚠️ تعذّر جلب الأخبار حالياً\n\n"
+                "📌 *أبرز تطورات الذهب اليوم:*\n"
+                "• الذهب يتداول قرب أعلى مستوياته\n"
+                "• ترقّب بيانات التضخم الأمريكية\n"
+                "• الطلب الآسيوي يدعم السعر")
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⚡ إشارة الآن", callback_data="get_signal")],
+            [InlineKeyboardButton("🔙 القائمة", callback_data="start")],
+        ]),
+        parse_mode="Markdown"
+    )
+
+
+# ============================================================
+#  LOYALTY POINTS HELPERS
+# ============================================================
+def award_points(tg_id, points, reason=""):
+    try:
+        db = SessionLocal()
+        u = db.query(TradingUser).filter(TradingUser.tg_id == str(tg_id)).first()
+        if u:
+            u.loyalty_points = (u.loyalty_points or 0) + points
+            # every 100 points = 1 bonus signal
+            new_pts = u.loyalty_points
+            bonus_earned = new_pts // 100
+            current_bonus = u.bonus_signals or 0
+            if bonus_earned > current_bonus:
+                u.bonus_signals = bonus_earned
+        db.commit()
+        db.close()
+    except Exception as e:
+        logger.error("award_points: " + str(e))
+
+async def cmd_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = str(update.effective_user.id)
+    db = SessionLocal()
+    u = db.query(TradingUser).filter(TradingUser.tg_id == uid).first()
+    db.close()
+    if not u:
+        await update.message.reply_text("❌ ابدأ بـ /start")
+        return
+    pts = u.loyalty_points or 0
+    bonus = u.bonus_signals or 0
+    next_bonus = 100 - (pts % 100)
+    progress = "█" * (pts % 100 // 10) + "░" * (10 - pts % 100 // 10)
+    await update.message.reply_text(
+        "⭐ *نقاط الولاء الخاصة بك*\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🏆 نقاطك الحالية: *" + str(pts) + "* نقطة\n"
+        "🎁 إشارات مكافأة: *" + str(bonus) + "* إشارة\n\n"
+        "📊 التقدم نحو الإشارة التالية:\n"
+        "[" + progress + "] " + str(pts % 100) + "/100\n"
+        "⏳ تحتاج " + str(next_bonus) + " نقطة أخرى\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 *كيف تكسب نقاط؟*\n"
+        "• طلب إشارة تداول → +5 نقاط\n"
+        "• فتح البوت يومياً → +2 نقطة\n"
+        "• دعوة صديق → +50 نقطة\n"
+        "• كل 100 نقطة → إشارة مجانية 🎁",
+        parse_mode="Markdown"
+    )
+
+
+# ============================================================
+#  EVENING MARKET SUMMARY (8:00 PM UTC)
+# ============================================================
+async def evening_market_summary(context):
+    try:
+        gold_manager.update()
+        price = gold_manager.price or 0
+        data = gold_manager.get_market_data() or {}
+        prices = data.get("prices", [])
+        change_text = ""
+        if len(prices) >= 2:
+            chg = prices[-1] - prices[-2]
+            pct = (chg / prices[-2] * 100) if prices[-2] else 0
+            arrow = "📈" if chg > 0 else "📉"
+            change_text = "\n" + arrow + " التغيير: " + ("+" if chg > 0 else "") + str(round(chg, 2)) + " (" + str(round(pct, 3)) + "%)"
+        direction_text = ""
+        if len(prices) >= 10:
+            try:
+                sig = signal_engine.generate_signal(data)
+                if sig:
+                    d = "شراء 📈" if sig.get("direction") == "BUY" else "بيع 📉"
+                    direction_text = "\n\n🔮 *توقع الغد:* " + d + "\nمستوى الدخول المحتمل: $" + str(sig.get("entry", "—"))
+            except Exception:
+                pass
+        db = SessionLocal()
+        vip_users = db.query(TradingUser).filter(TradingUser.is_vip == True, TradingUser.is_blocked == False).all()
+        trial_users = db.query(TradingUser).filter(TradingUser.is_vip == False, TradingUser.is_blocked == False).all()
+        all_targets = vip_users + trial_users[:50]
+        db.close()
+        msg = (
+            "🌙 *ملخص ما بعد السوق*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "📅 " + datetime.now().strftime("%Y-%m-%d") + "\n"
+            "💰 سعر إغلاق الذهب: $" + str(round(price, 2)) + change_text + direction_text + "\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "📊 تابعنا غداً لمزيد من الإشارات الدقيقة!"
+        )
+        for u in all_targets:
+            try:
+                await context.bot.send_message(chat_id=u.tg_id, text=msg, parse_mode="Markdown")
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error("evening_summary: " + str(e))
+
+
+# ============================================================
+#  VIP RENEWAL REMINDER
+# ============================================================
+async def vip_renewal_reminder(context):
+    """تذكير بانتهاء VIP — يعتمد على vip_expires_at إذا وُجد"""
+    try:
+        db = SessionLocal()
+        vip_users = db.query(TradingUser).filter(TradingUser.is_vip == True, TradingUser.is_blocked == False).all()
+        db.close()
+        now = datetime.utcnow()
+        for u in vip_users:
+            try:
+                exp = u.vip_expires_at
+                if not exp:
+                    continue
+                days_left = (exp - now).days
+                if days_left in (3, 1):
+                    await context.bot.send_message(
+                        chat_id=u.tg_id,
+                        text=(
+                            "⚠️ *تذكير تجديد VIP*\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            "⏳ اشتراكك ينتهي خلال *" + str(days_left) + "* يوم!\n\n"
+                            "جدد الآن واستمر في الاستفادة من:\n"
+                            "• إشارات XAUUSD فورية ⚡\n"
+                            "• تداول آلي مع MT5 🤖\n"
+                            "• تنبيهات سعر مخصصة 🔔\n"
+                            "• ملخص يومي 🌅\n\n"
+                            "📞 تواصل مع الدعم للتجديد"
+                        ),
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("💎 جدّد VIP الآن", url=WHATSAPP_LINK)],
+                        ]),
+                        parse_mode="Markdown"
+                    )
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error("vip_renewal_reminder: " + str(e))
+
+
+async def handle_admin_dashboard(query, user_id):
+    if user_id not in ADMIN_IDS:
+        await query.answer("⛔ غير مصرح")
+        return
+    db = SessionLocal()
+    total = db.query(TradingUser).count()
+    vip   = db.query(TradingUser).filter(TradingUser.is_vip == True).count()
+    trial = db.query(TradingUser).filter(TradingUser.is_vip == False, TradingUser.is_blocked == False).count()
+    blocked = db.query(TradingUser).filter(TradingUser.is_blocked == True).count()
+    alerts  = db.query(GoldAlert).filter(GoldAlert.is_active == True).count()
+    at_accs = db.query(AutoTradeAccount).filter(AutoTradeAccount.is_active == True).count()
+    total_pts = db.query(TradingUser).all()
+    pts_sum = sum((u.loyalty_points or 0) for u in total_pts)
+    db.close()
+    gold_manager.update()
+    price = gold_manager.price or 0
+    session = gold_manager.session or "—"
+    await query.edit_message_text(
+        "📊 *لوحة تحكم الأدمن*\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "💰 سعر الذهب: $" + str(round(price, 2)) + " | جلسة: " + session + "\n\n"
+        "👥 *المستخدمون:*\n"
+        "• الإجمالي: `" + str(total) + "`\n"
+        "• VIP: `" + str(vip) + "`\n"
+        "• تجربة/عادي: `" + str(trial) + "`\n"
+        "• محظور: `" + str(blocked) + "`\n\n"
+        "🤖 *الأنظمة الحية:*\n"
+        "• تنبيهات نشطة: `" + str(alerts) + "`\n"
+        "• حسابات تداول آلي: `" + str(at_accs) + "`\n"
+        "• مجموع نقاط الولاء: `" + str(pts_sum) + "`\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "⚡ *أوامر سريعة:* /stats | /users | /broadcast",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📡 بث رسالة", callback_data="admin_broadcast_prompt")],
+            [InlineKeyboardButton("👥 آخر المستخدمين", callback_data="admin_new_members")],
+            [InlineKeyboardButton("🔙 القائمة", callback_data="start")],
+        ]),
+        parse_mode="Markdown"
+    )
+
+async def admin_broadcast_prompt(query, user_id):
+    if user_id not in ADMIN_IDS:
+        await query.answer("⛔")
+        return
+    await query.edit_message_text(
+        "📡 *بث رسالة لجميع المستخدمين*\n\n"
+        "استخدم الأمر:\n`/broadcast الرسالة هنا`",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_dashboard")]])
+    )
+
+
+# ============================================================
 #  HANDLERS
 # ============================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1566,6 +1911,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = SessionLocal()
     u = db.query(TradingUser).filter(TradingUser.tg_id == str(user.id)).first()
     is_new = not u
+    _ref_arg = (context.args[0] if context.args else "")
+    _referrer = None
+    if is_new and _ref_arg.startswith("ref_"):
+        _code_val = _ref_arg[4:]
+        for _ru in db.query(TradingUser).all():
+            if gen_ref_code(str(_ru.tg_id)) == _code_val and str(_ru.tg_id) != str(user.id):
+                _referrer = _ru
+                break
     if not u:
         u = TradingUser(
             tg_id=str(user.id),
@@ -1574,6 +1927,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         db.add(u)
         db.commit()
+        if is_new and _referrer:
+            _referrer.loyalty_points = (_referrer.loyalty_points or 0) + 50
+            _referrer.bonus_signals  = (_referrer.bonus_signals  or 0) + 1
+            u.referred_by   = str(_referrer.tg_id)
+            u.bonus_signals = (u.bonus_signals or 0) + 2
+            db.commit()
+            try:
+                import asyncio as _aio
+                _aio.get_event_loop().call_soon(lambda: None)
+                await context.bot.send_message(chat_id=_referrer.tg_id,
+                    text="U0001f389 صديق جديد انضم عبر رابطك!\n+50 نقطة و+1 إشارة مكافأة! U0001f381",
+                    parse_mode="Markdown")
+            except Exception:
+                pass
     elif not u.first_name and user.first_name:
         u.first_name = user.first_name
         db.commit()
@@ -1740,6 +2107,7 @@ async def handle_get_signal(query, user_id):
     is_vip = is_trial_active(user)
     if user:
         user.signals_requested = (user.signals_requested or 0) + 1
+        user.loyalty_points = (user.loyalty_points or 0) + 5
         db.commit()
     db.close()
 
@@ -2330,6 +2698,68 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]),
             parse_mode="Markdown"
         )
+
+    elif data == "session_timer":
+        await handle_session_timer(query)
+    elif data == "gold_news":
+        await handle_gold_news(query)
+    elif data == "referral_menu":
+        db_ref = SessionLocal()
+        u_ref = db_ref.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
+        db_ref.close()
+        bot_info = await context.bot.get_me()
+        code = gen_ref_code(str(user_id))
+        link = "https://t.me/" + bot_info.username + "?start=ref_" + code
+        pts = (u_ref.loyalty_points or 0) if u_ref else 0
+        bonus = (u_ref.bonus_signals or 0) if u_ref else 0
+        await query.edit_message_text(
+            "🎁 *الإحالة ونقاط الولاء*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "🔗 *رابطك الشخصي:*\n"
+            + link + "\n\n"
+            "⭐ نقاطك: " + str(pts) + " | 🎁 مكافآت: " + str(bonus) + " إشارة\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "🏆 *كيف يعمل؟*\n"
+            "• كل صديق يسجل عبر رابطك → +50 نقطة + إشارة مجانية لك\n"
+            "• صديقك يحصل على +2 إشارة تجربة إضافية\n"
+            "• كل 100 نقطة → إشارة مجانية 🎯",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⭐ نقاطي التفصيلية", callback_data="my_points")],
+                [InlineKeyboardButton("🔙 القائمة", callback_data="start")],
+            ]),
+            parse_mode="Markdown"
+        )
+    elif data == "my_points":
+        db_pts = SessionLocal()
+        u_pts = db_pts.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
+        db_pts.close()
+        pts = (u_pts.loyalty_points or 0) if u_pts else 0
+        bonus = (u_pts.bonus_signals or 0) if u_pts else 0
+        next_b = 100 - (pts % 100) if (pts % 100) != 0 else 100
+        filled = min(10, (pts % 100) // 10)
+        bar = ("█" * filled) + ("░" * (10 - filled))
+        await query.edit_message_text(
+            "⭐ *نقاط الولاء*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "🏆 نقاطك: " + str(pts) + " نقطة\n"
+            "🎁 إشارات مكافأة: " + str(bonus) + " إشارة\n\n"
+            "[" + bar + "] " + str(pts % 100) + "/100\n"
+            "⏳ تحتاج " + str(next_b) + " نقطة للإشارة التالية\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "💡 *كيف تكسب نقاط؟*\n"
+            "• طلب إشارة تداول → +5 نقاط\n"
+            "• دعوة صديق → +50 نقطة\n"
+            "• كل 100 نقطة → إشارة مجانية 🎁",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎁 ادعُ صديقاً", callback_data="referral_menu")],
+                [InlineKeyboardButton("🔙 القائمة", callback_data="start")],
+            ]),
+            parse_mode="Markdown"
+        )
+    elif data == "admin_dashboard":
+        await handle_admin_dashboard(query, user_id)
+    elif data == "admin_broadcast_prompt":
+        await admin_broadcast_prompt(query, user_id)
 
     elif data == "admin_marketing":
         msg = """💼 *الجانب الإداري والتسويقي*
@@ -3219,6 +3649,16 @@ async def post_init(application: Application):
         name="daily_vip_summary"
     )
     application.job_queue.run_daily(
+        evening_market_summary,
+        time=dtime(20, 0, 0),
+        name="evening_summary"
+    )
+    application.job_queue.run_daily(
+        vip_renewal_reminder,
+        time=dtime(10, 0, 0),
+        name="vip_reminder"
+    )
+    application.job_queue.run_daily(
         daily_reminder_job,
         time=dtime(7, 0, 0),
         name="daily_reminder"
@@ -3274,6 +3714,8 @@ def main():
     app.add_handler(auto_trading_conv)
     app.add_handler(alert_conv)
     app.add_handler(CommandHandler("alerts_clear", alerts_clear))
+    app.add_handler(CommandHandler("ref", cmd_referral))
+    app.add_handler(CommandHandler("points", cmd_points))
     # أزرار التفاعل
     app.add_handler(CallbackQueryHandler(button_handler))
 
