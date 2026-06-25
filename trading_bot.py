@@ -3207,6 +3207,17 @@ async def post_init(application: Application):
         first=60,
         name="market_reopen_checker"
     )
+    application.job_queue.run_repeating(
+        check_gold_alerts,
+        interval=60,
+        first=30,
+        name="gold_alerts_checker"
+    )
+    application.job_queue.run_daily(
+        daily_morning_summary,
+        time=dtime(6, 0, 0),
+        name="daily_vip_summary"
+    )
     application.job_queue.run_daily(
         daily_reminder_job,
         time=dtime(7, 0, 0),
@@ -3262,7 +3273,6 @@ def main():
 
     app.add_handler(auto_trading_conv)
     app.add_handler(alert_conv)
-    app.add_handler(CommandHandler("broadcast", admin_broadcast))
     app.add_handler(CommandHandler("alerts_clear", alerts_clear))
     # أزرار التفاعل
     app.add_handler(CallbackQueryHandler(button_handler))
