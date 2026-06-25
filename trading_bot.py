@@ -1059,10 +1059,13 @@ def trial_menu():
         [InlineKeyboardButton("💎 اشترك VIP — إشارات كاملة", callback_data="plans")],
         [InlineKeyboardButton("🔔 تنبيه سعر", callback_data="set_alert"),
          InlineKeyboardButton("🧮 حاسبة المخاطرة", callback_data="risk_calc")],
-        [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
+        [InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer"),
+         InlineKeyboardButton("📰 أخبار الذهب", callback_data="gold_news")],
+        [InlineKeyboardButton("🎁 ادعُ صديقاً", callback_data="referral_menu"),
          InlineKeyboardButton("👤 حسابي", callback_data="my_account")],
-        [InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK),
-         InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
+        [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
+         InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
+        [InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
