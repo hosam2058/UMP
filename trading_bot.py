@@ -52,6 +52,10 @@ class TradingUser(Base):
     is_vip = Column(Boolean, default=False)
     signals_requested = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
+    loyalty_points = Column(Integer, default=0)
+    bonus_signals = Column(Integer, default=0)
+    vip_expires_at = Column(DateTime, nullable=True)
+    referred_by = Column(String, default="")
 
 class Signal(Base):
     __tablename__ = "signals"
