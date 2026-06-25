@@ -519,6 +519,14 @@ class GoldPriceManager:
         self.last_update = None
         self.session = "unknown"
 
+    @property
+    def price(self):
+        return self.current_price
+
+    @price.setter
+    def price(self, value):
+        self.current_price = value
+
     def _get_trading_session(self) -> str:
         hour = datetime.utcnow().hour
         if 22 <= hour or hour < 7:
