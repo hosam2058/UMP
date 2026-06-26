@@ -1530,8 +1530,9 @@ async def alert_recv_price(update, context):
         await update.message.reply_text("❌ سعر غير صحيح. أدخل رقماً مثل: 3200")
         return ALERT_PRICE
     uid = str(update.effective_user.id)
-    gold_manager.update()
-    current = gold_manager.price or 0
+    if not finnhub_ws.is_data_fresh():
+        gold_manager.update()
+    current = gold_manager.current_price or 0
     direction = "above" if price > current else "below"
     db = SessionLocal()
     db.add(GoldAlert(tg_id=uid, target_price=price, direction=direction))
@@ -2428,7 +2429,9 @@ async def handle_get_signal(query, user_id):
         db.commit()
     db.close()
 
-    gold_manager.update()
+    # WS أولاً — لا نلوث السعر بـ Yahoo Finance إلا إذا WS قديم
+    if not finnhub_ws.is_data_fresh():
+        gold_manager.update()
 
     if not is_vip:
         demo = _generate_demo_signal()
@@ -3339,7 +3342,8 @@ async def admin_signal_manual(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(f"⛔ لا يمكن إرسال إشارة الآن.\n\n{market_msg}\n\nيرجى الانتظار حتى فتح الأسواق.")
         return
 
-    gold_manager.update()
+    if not finnhub_ws.is_data_fresh():
+        gold_manager.update()
     data = gold_manager.get_analysis_data()
     if not data:
         await update.message.reply_text("⚠️ لا تتوفر بيانات كافية بعد. حاول لاحقاً.")
@@ -3541,7 +3545,8 @@ async def admin_price_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """يعرض بيانات السعر والتحليل التقني للأدمن"""
     if update.effective_user.id not in ADMIN_IDS:
         return
-    gold_manager.update()
+    if not finnhub_ws.is_data_fresh():
+        gold_manager.update()
     price    = gold_manager.current_price
     prices   = list(gold_manager.price_history)
     rsi_val  = TechnicalAnalysis.rsi(prices) if len(prices) >= 5 else None
