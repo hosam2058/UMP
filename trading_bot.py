@@ -316,7 +316,18 @@ class GeminiManager:
         self.keys = [
             os.getenv(f"GEMINI_KEY_{i}", "") for i in range(1, 16)
         ]
-        self.valid_keys = [k for k in self.keys if k]
+        # إذا لم توجد متغيرات البيئة، نقرأ من gemini_keys.json
+        if not any(self.keys):
+            try:
+                import json as _json
+                _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gemini_keys.json")
+                with open(_p, "r") as _f:
+                    _jk = _json.load(_f)
+                self.keys = [_jk.get(f"key_{i}", "") for i in range(1, 16)]
+                logger.info(f"✅ تم تحميل مفاتيح Gemini من JSON")
+            except Exception as _e:
+                logger.warning(f"⚠️ خطأ في تحميل مفاتيح JSON: {_e}")
+        self.valid_keys = [k for k in self.keys if k and len(k) > 10]
         self.current_index = 0
         self.exhausted = set()
         # نماذج النص فقط
