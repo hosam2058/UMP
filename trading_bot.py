@@ -375,12 +375,10 @@ class GeminiManager:
                 try:
                     model = genai.GenerativeModel(model_name)
                     if image_data:
-                        img = PIL.Image.open(_io.BytesIO(image_data))
-                        # تحويل إلى RGB إذا لزم
-                        if img.mode not in ("RGB", "RGBA"):
-                            img = img.convert("RGB")
+                        # إرسال الصورة مباشرة بدون PIL
+                        image_part = {"mime_type": image_mime, "data": image_data}
                         response = model.generate_content(
-                            [prompt, img],
+                            [prompt, image_part],
                             generation_config={"max_output_tokens": 2048}
                         )
                     else:
