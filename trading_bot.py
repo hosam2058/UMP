@@ -332,15 +332,17 @@ class GeminiManager:
         self.exhausted = set()
         # نماذج النص فقط
         self.text_models = [
-            "gemini-2.0-flash",
             "gemini-2.0-flash-lite",
+            "gemini-2.0-flash",
             "gemini-1.5-flash-latest",
+            "gemini-1.5-flash-8b-latest",
         ]
         # نماذج الرؤية (صور الشارت) - تدعم الصور
         self.vision_models = [
-            "gemini-2.0-flash",
             "gemini-2.0-flash-lite",
+            "gemini-2.0-flash",
             "gemini-1.5-flash-latest",
+            "gemini-1.5-flash-8b-latest",
         ]
         logger.info(f"✅ GeminiManager: {len(self.valid_keys)} مفتاح نشط")
 
@@ -393,6 +395,7 @@ class GeminiManager:
                     logger.warning(f"⚠️ Gemini {model_name} key#{self.current_index+1}: {str(e)[:80]}")
                     if any(x in err for x in ["quota", "429", "exhausted", "resource_exhausted"]):
                         self._rotate_key()
+                        await asyncio.sleep(0.5)
                         break
                     if any(x in err for x in ["invalid_api_key", "api_key", "permission"]):
                         self._rotate_key()
