@@ -21,7 +21,7 @@ META_BASE_URL    = "https://mt-client-api-v1.london.agiliumtrade.ai"
 DEFAULT_LOT       = float(os.getenv("AUTO_LOT", "0.01"))   # حجم اللوت الافتراضي
 MAX_OPEN_TRADES   = int(os.getenv("MAX_TRADES", "3"))       # أقصى صفقات مفتوحة
 RISK_PERCENT      = float(os.getenv("RISK_PERCENT", "1.0")) # نسبة المخاطرة من الحساب
-SYMBOL            = "XAUUSD"
+SYMBOL            = os.getenv("TRADING_PAIR", "XAUUSD").upper()  # ديناميكي حسب البوت
 
 # ── حالة النظام ──────────────────────────────────────────────────
 auto_trading_enabled = False   # يُفعَّل من أمر الأدمن
