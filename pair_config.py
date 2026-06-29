@@ -13,8 +13,9 @@ PAIRS = {
         "currency": "$",
         "decimals": 2,
         "min_price": 100.0,
-        "db_file": "data/trading_bot.db",  # الملف الأصلي — لا تغيّر هذا
+        "db_file": "data/trading_bot.db",
         "is_gold": True,
+        "is_24_7": False,
     },
     "BTCUSD": {
         "token": os.getenv("BTCUSD_BOT_TOKEN", "8515228176:AAEaXyMxXT0tS8h4QUjSQJh1mXHLEI-kaVI"),
@@ -28,6 +29,7 @@ PAIRS = {
         "min_price": 1000.0,
         "db_file": "data/btcusd_bot.db",
         "is_gold": False,
+        "is_24_7": True,
     },
     "EURUSD": {
         "token": os.getenv("EURUSD_BOT_TOKEN", "8385015566:AAHzlqBKey9_Wz4ktgeZudZchUGCL6e0RBQ"),
@@ -41,6 +43,7 @@ PAIRS = {
         "min_price": 0.5,
         "db_file": "data/eurusd_bot.db",
         "is_gold": False,
+        "is_24_7": False,
     },
 }
 
