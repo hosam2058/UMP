@@ -2296,7 +2296,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🧠 نظام تحليل بـ *12 مصدر تأكيد*
 📊 مؤشرات: RSI • MACD • Bollinger • Fibonacci • ATR • Stochastic
 🎯 دقة التوقع: *65%-79%*
-⚡ إشارات " + PAIR_CFG['symbol'] + " لحظية بالوقت الحقيقي
+⚡ إشارات {PAIR_CFG['symbol']} لحظية بالوقت الحقيقي
 📊 تحليل استراتيجيتك بالذكاء الاصطناعي
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2844,11 +2844,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🚀 ميزة VIP حصرية!"""
             await query.edit_message_text(msg, reply_markup=back_menu(), parse_mode="Markdown")
         elif data == "plans":
-            msg = """🎯 *خطط الاشتراك - اختر ما يناسبك*
+            msg = f"""🎯 *خطط الاشتراك - اختر ما يناسبك*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 🥉 *الخطة الفضية — 10$*
-• سعر " + PAIR_CFG['display_name'] + " الحي لحظة بلحظة
+• سعر {PAIR_CFG['display_name']} الحي لحظة بلحظة
 • 3 إشارات يومياً (كاملة مع الأرقام)
 • مؤشرات RSI + MACD
 • معلومة الجلسة (لندن/نيويورك/آسيا)
@@ -2883,9 +2883,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
             await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
         elif data == "plan_basic":
-            msg = """🥉 *الخطة الفضية — 10$ / شهر*
+            msg = f"""🥉 *الخطة الفضية — 10$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✅ سعر " + PAIR_CFG['display_name'] + " الحي لحظة بلحظة (" + PAIR_CFG['symbol'] + ")
+✅ سعر {PAIR_CFG['display_name']} الحي لحظة بلحظة ({PAIR_CFG['symbol']})
 ✅ 3 إشارات يومياً (كاملة مع الأرقام)
 ✅ دخول + TP1 + وقف الخسارة
 ✅ مؤشر RSI (14 فترة) + MACD (12/26/9)
@@ -2905,9 +2905,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
             await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
         elif data == "plan_pro":
-            msg = """🥈 *الخطة الذهبية — 20$ / شهر*
+            msg = f"""🥈 *الخطة الذهبية — 20$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✅ سعر " + PAIR_CFG['display_name'] + " الحي لحظة بلحظة
+✅ سعر {PAIR_CFG['display_name']} الحي لحظة بلحظة
 ✅ 10 إشارات يومياً (كاملة)
 ✅ دخول + TP1 + TP2 + TP3 + وقف الخسارة
 ✅ جميع المؤشرات الـ12:
@@ -2927,9 +2927,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
             await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
         elif data == "plan_vip":
-            msg = """💎 *الخطة الماسية VIP — 50$ / شهر*
+            msg = f"""💎 *الخطة الماسية VIP — 50$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✅ سعر " + PAIR_CFG['display_name'] + " الحي لحظة بلحظة
+✅ سعر {PAIR_CFG['display_name']} الحي لحظة بلحظة
 ✅ إشارات تلقائية غير محدودة 24/7
 ✅ دخول + TP1 + TP2 + TP3 + وقف الخسارة
 ✅ جميع المؤشرات الـ12 كاملة
@@ -3992,9 +3992,9 @@ async def market_reopen_check(context: ContextTypes.DEFAULT_TYPE):
 #  MAIN
 # ============================================================
 DAILY_REMINDERS = [
-    """⚡ *تذكير يومي من نظام التداول الذكي*
+    f"""⚡ *تذكير يومي من نظام التداول الذكي*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-📊 سوق " + PAIR_CFG['symbol'] + " يتحرك الآن!
+📊 سوق {PAIR_CFG['symbol']} يتحرك الآن!
 النظام يراقب 12 مصدر تأكيد لحظة بلحظة.
 
 💡 *نصيحة اليوم:*
