@@ -1,5 +1,10 @@
 import os
 import logging
+# ============================================================
+#  PAIR CONFIGURATION — اقرأ الزوج من متغير البيئة
+# ============================================================
+TRADING_PAIR = os.getenv("TRADING_PAIR", "XAUUSD").upper()
+from pair_config import PAIR_CFG
 import asyncio
 import json
 import math
@@ -39,7 +44,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 #  DATABASE
 # ============================================================
-DATABASE_URL = "sqlite:///data/trading_bot.db"
+DATABASE_URL = "sqlite:///" + PAIR_CFG["db_file"]
 os.makedirs("data", exist_ok=True)
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
@@ -213,7 +218,7 @@ def _update_stats_for_website():
 # ============================================================
 #  CONFIG
 # ============================================================
-BOT_TOKEN = os.getenv("TRADING_BOT_TOKEN", "8543638509:AAGu_lP83It50LcIXbtZeaC5stuqz5HvHn4")
+BOT_TOKEN = PAIR_CFG["token"]
 WHATSAPP_LINK = "https://wa.me/201500236188"
 ADMIN_IDS = [8865738615, 7929701751]
 GOLD_API_KEY = os.getenv("GOLD_API_KEY", "")
@@ -586,7 +591,7 @@ class GoldPriceManager:
         # 1. Yahoo Finance (الاوثق، بدون API key)
         try:
             r = requests.get(
-                "https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1m&range=1d",
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{PAIR_CFG['yahoo_symbol']}?interval=1m&range=1d",
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
                 timeout=8
             )
@@ -602,7 +607,7 @@ class GoldPriceManager:
         # 2. Yahoo Finance مرآة احتياطية
         try:
             r = requests.get(
-                "https://query2.finance.yahoo.com/v7/finance/quote?symbols=GC%3DF&fields=regularMarketPrice",
+                f"https://query2.finance.yahoo.com/v7/finance/quote?symbols={PAIR_CFG['yahoo_symbol_v7']}&fields=regularMarketPrice",
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
                 timeout=8
             )
@@ -675,7 +680,7 @@ class GoldPriceManager:
     def update(self) -> dict:
         result = self.fetch_price()
         price = result.get("price")
-        if price and price > 100:
+        if price and price > PAIR_CFG["min_price"]:
             self.current_price = price
             self.last_update = datetime.utcnow()
             self.session = self._get_trading_session()
@@ -686,7 +691,7 @@ class GoldPriceManager:
         return result
 
     def feed_ws_price(self, price: float):
-        if not price or price < 100:
+        if not price or price < PAIR_CFG["min_price"]:
             return
         self.current_price = price
         self.last_update = datetime.utcnow()
@@ -741,8 +746,8 @@ class FinnhubWebSocket:
         self._connected   = True
         self._reconnecting = False
         key = self._current_key()
-        logger.info("Finnhub WS متصل (..." + key[-6:] + ") — اشتراك OANDA:XAU_USD")
-        ws.send(json.dumps({"type": "subscribe", "symbol": "OANDA:XAU_USD"}))
+        logger.info("Finnhub WS متصل (..." + key[-6:] + ") — اشتراك " + PAIR_CFG["ws_symbol"])
+        ws.send(json.dumps({"type": "subscribe", "symbol": PAIR_CFG["ws_symbol"]}))
 
     def _on_message(self, ws, message):
         try:
@@ -755,10 +760,10 @@ class FinnhubWebSocket:
                 return
             for trade in data.get("data", []):
                 price = trade.get("p")
-                if price and float(price) > 100 and price != self._last_price:
+                if price and float(price) > PAIR_CFG["min_price"] and price != self._last_price:
                     self._last_price = price
                     gold_manager.feed_ws_price(float(price))
-                    logger.info("WS XAU: " + str(round(float(price), 2)))
+                    logger.info("WS " + PAIR_CFG["symbol"] + ": " + str(round(float(price), PAIR_CFG["decimals"])))
         except Exception as e:
             logger.warning("WS message error: " + str(e))
 
@@ -1114,14 +1119,17 @@ def format_signal(sig: dict) -> str:
     bar = CONFIDENCE_BAR(sig["confidence"])
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    text = f"""⚡ **إشارة تداول VIP | XAUUSD**
+    pair_sym = PAIR_CFG["symbol"]
+    cur = PAIR_CFG["currency"]
+    dec = PAIR_CFG["decimals"]
+    text = f"""⚡ **إشارة تداول VIP | {pair_sym}**
 ━━━━━━━━━━━━━━━━━━━━━━━━
 📌 **الاتجاه:** {direction_ar}
-💰 **سعر الدخول:** ${sig['entry']:,.2f}
-🎯 **الهدف الأول (TP1):** ${sig['tp1']:,.2f}
-🎯 **الهدف الثاني (TP2):** ${sig['tp2']:,.2f}
-🏆 **الهدف الثالث (TP3):** ${sig['tp3']:,.2f}
-🛑 **وقف الخسارة (SL):** ${sig['sl']:,.2f}
+💰 **سعر الدخول:** {cur}{sig['entry']:,.{dec}f}
+🎯 **الهدف الأول (TP1):** {cur}{sig['tp1']:,.{dec}f}
+🎯 **الهدف الثاني (TP2):** {cur}{sig['tp2']:,.{dec}f}
+🏆 **الهدف الثالث (TP3):** {cur}{sig['tp3']:,.{dec}f}
+🛑 **وقف الخسارة (SL):** {cur}{sig['sl']:,.{dec}f}
 📊 **نسبة المكسب/الخسارة:** {sig['rr_ratio']}:1
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
