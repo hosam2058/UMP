@@ -1536,11 +1536,11 @@ async def alert_entry(update, context):
             d = "↑ فوق" if a.direction == "above" else "↓ تحت"
             alerts_text += "• " + d + " $" + str(a.target_price) + "\n"
     await query.edit_message_text(
-        "🔔 *تنبيهات سعر الذهب*\n"
+        "🔔 *تنبيهات سعر " + PAIR_CFG["display_name"] + "*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "أرسل السعر الذي تريد التنبيه عنده.\n"
         "مثال: 3200 أو 3050\n\n"
-        "📌 سيصلك تنبيه عندما يصل سعر الذهب لهذا المستوى." + alerts_text + "\n\nللإلغاء: /cancel",
+        "📌 سيصلك تنبيه عندما يصل سعر " + PAIR_CFG["display_name"] + " لهذا المستوى." + alerts_text + "\n\nللإلغاء: /cancel",
         parse_mode="Markdown"
     )
     return ALERT_PRICE
@@ -1548,10 +1548,10 @@ async def alert_entry(update, context):
 async def alert_recv_price(update, context):
     try:
         price = float(update.message.text.strip().replace(",", ""))
-        if not (100 <= price <= 99999):
+        if not (PAIR_CFG["min_price"] <= price <= 9_999_999):
             raise ValueError
     except ValueError:
-        await update.message.reply_text("❌ سعر غير صحيح. أدخل رقماً مثل: 3200")
+        await update.message.reply_text("❌ سعر غير صحيح. أدخل رقماً صحيحاً لـ " + PAIR_CFG["display_name"])
         return ALERT_PRICE
     uid = str(update.effective_user.id)
     if not finnhub_ws.is_data_fresh():
@@ -1669,7 +1669,7 @@ async def daily_morning_summary(context):
             f"🌅 *صباح الخير — ملخص سوق {PAIR_CFG["display_name"]}*\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "📅 " + datetime.now().strftime("%Y-%m-%d") + "\n"
-            "💰 سعر الذهب الحالي: $" + str(round(price, 2)) + "\n"
+            "💰 سعر " + PAIR_CFG["display_name"] + " الحالي: " + PAIR_CFG["currency"] + str(round(price, PAIR_CFG["decimals"])) + "\n"
             "🕐 الجلسة الحالية: " + session + sig_text + "\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "💎 حساب VIP مفعّل | تداول بثقة وإدارة مخاطر 📊"
@@ -1840,18 +1840,18 @@ def fetch_gold_news():
         return []
 
 async def handle_gold_news(query):
-    await query.edit_message_text("📰 جاري جلب آخر أخبار الذهب...", parse_mode="Markdown")
+    await query.edit_message_text("📰 جاري جلب آخر أخبار " + PAIR_CFG["display_name"] + "...", parse_mode="Markdown")
     news = fetch_gold_news()
     if news:
-        text = "📰 *آخر أخبار الذهب*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        text = "📰 *آخر أخبار " + PAIR_CFG["display_name"] + "*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
         for i, n in enumerate(news, 1):
             text += str(i) + ". " + n[:100] + "\n\n"
         text += "━━━━━━━━━━━━━━━━━━━━━━━━\n🔄 يتجدد كل ساعة | المصدر: Yahoo Finance / Kitco"
     else:
-        text = ("📰 *آخر أخبار الذهب*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        text = ("📰 *آخر أخبار " + PAIR_CFG["display_name"] + "*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "⚠️ تعذّر جلب الأخبار حالياً\n\n"
-                "📌 *أبرز تطورات الذهب اليوم:*\n"
-                "• الذهب يتداول قرب أعلى مستوياته\n"
+                "📌 *أبرز المستجدات اليوم:*\n"
+                "• " + PAIR_CFG["display_name"] + " يتداول قرب مستويات مهمة\n"
                 "• ترقّب بيانات التضخم الأمريكية\n"
                 "• الطلب الآسيوي يدعم السعر")
     await query.edit_message_text(
@@ -1947,7 +1947,7 @@ async def evening_market_summary(context):
             "🌙 *ملخص ما بعد السوق*\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "📅 " + datetime.now().strftime("%Y-%m-%d") + "\n"
-            "💰 سعر إغلاق الذهب: $" + str(round(price, 2)) + change_text + direction_text + "\n\n"
+            "💰 سعر إغلاق " + PAIR_CFG["display_name"] + ": " + PAIR_CFG["currency"] + str(round(price, PAIR_CFG["decimals"])) + change_text + direction_text + "\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "📊 تابعنا غداً لمزيد من الإشارات الدقيقة!"
         )
@@ -2021,7 +2021,7 @@ async def handle_admin_dashboard(query, user_id):
     await query.edit_message_text(
         "📊 *لوحة تحكم الأدمن*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "💰 سعر الذهب: $" + str(round(price, 2)) + " | جلسة: " + session + "\n\n"
+        "💰 سعر " + PAIR_CFG["display_name"] + ": " + PAIR_CFG["currency"] + str(round(price, PAIR_CFG["decimals"])) + " | جلسة: " + session + "\n\n"
         "👥 *المستخدمون:*\n"
         "• الإجمالي: `" + str(total) + "`\n"
         "• VIP: `" + str(vip) + "`\n"
@@ -2848,7 +2848,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 🥉 *الخطة الفضية — 10$*
-• سعر الذهب الحي لحظة بلحظة
+• سعر " + PAIR_CFG["display_name"] + " الحي لحظة بلحظة
 • 3 إشارات يومياً (كاملة مع الأرقام)
 • مؤشرات RSI + MACD
 • معلومة الجلسة (لندن/نيويورك/آسيا)
@@ -2907,7 +2907,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "plan_pro":
             msg = """🥈 *الخطة الذهبية — 20$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✅ سعر الذهب الحي لحظة بلحظة
+✅ سعر " + PAIR_CFG["display_name"] + " الحي لحظة بلحظة
 ✅ 10 إشارات يومياً (كاملة)
 ✅ دخول + TP1 + TP2 + TP3 + وقف الخسارة
 ✅ جميع المؤشرات الـ12:
@@ -2929,7 +2929,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "plan_vip":
             msg = """💎 *الخطة الماسية VIP — 50$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✅ سعر الذهب الحي لحظة بلحظة
+✅ سعر " + PAIR_CFG["display_name"] + " الحي لحظة بلحظة
 ✅ إشارات تلقائية غير محدودة 24/7
 ✅ دخول + TP1 + TP2 + TP3 + وقف الخسارة
 ✅ جميع المؤشرات الـ12 كاملة
@@ -3147,7 +3147,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "📊 *أرقام حقيقية لا وعود فارغة*\n"
                 "• دقة التوقع: 65%–79% موثّقة\n"
                 "• أكثر من 500 إشارة ناجحة\n"
-                "• متابعة لحظية لسعر الذهب 24/7\n\n"
+                "• متابعة لحظية لسعر " + PAIR_CFG["display_name"] + " 24/7\n\n"
                 "🤖 *ميزات حصرية لأعضاء VIP*\n"
                 f"• إشارات {PAIR_CFG['symbol']} فورية بدخول وTP وSL\n"
                 "• تحليل شارت بالذكاء الاصطناعي\n"
@@ -3269,7 +3269,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
   • إجمالي: `{signals}`
   • اليوم: `{today_sigs}`
 
-💰 *سعر الذهب:* `{price_info}`
+💰 *سعر {PAIR_CFG['display_name']}:* `{price_info}`
 📡 *WebSocket:* {ws_status}
 📈 *نقاط البيانات:* `{data_points}/200`
 🔑 *مفاتيح AI:* `{len(gemini.valid_keys)}/15` نشط""",
@@ -3915,7 +3915,7 @@ async def price_update_job(context: ContextTypes.DEFAULT_TYPE):
                     logger.error(f"Batch auto-trade: {_be}")
         else:
             pts = len(data["prices"]) if data else 0
-            logger.info(f"🔄 تحديث سعر الذهب - نقاط البيانات: {pts}/50")
+            logger.info(f"🔄 تحديث سعر {PAIR_CFG['display_name']} - نقاط البيانات: {pts}/50")
     except Exception as e:
         logger.error(f"Price update error: {e}")
 
@@ -3994,7 +3994,7 @@ async def market_reopen_check(context: ContextTypes.DEFAULT_TYPE):
 DAILY_REMINDERS = [
     """⚡ *تذكير يومي من نظام التداول الذكي*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-📊 سوق الذهب يتحرك الآن!
+📊 سوق " + PAIR_CFG["symbol"] + " يتحرك الآن!
 النظام يراقب 12 مصدر تأكيد لحظة بلحظة.
 
 💡 *نصيحة اليوم:*
@@ -4042,7 +4042,7 @@ async def daily_reminder_job(context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="Markdown",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("⚡ عرض الإشارات", callback_data="get_signal"),
-                         InlineKeyboardButton("💰 سعر الذهب", callback_data="gold_price")]
+                         InlineKeyboardButton("💰 سعر " + PAIR_CFG["display_name"], callback_data="gold_price")]
                     ])
                 )
                 sent += 1
