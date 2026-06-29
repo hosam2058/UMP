@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 #  DATABASE
 # ============================================================
-DATABASE_URL = "sqlite:///" + PAIR_CFG["db_file"]
+DATABASE_URL = "sqlite:///" + PAIR_CFG['db_file']
 os.makedirs("data", exist_ok=True)
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
@@ -218,7 +218,7 @@ def _update_stats_for_website():
 # ============================================================
 #  CONFIG
 # ============================================================
-BOT_TOKEN = PAIR_CFG["token"]
+BOT_TOKEN = PAIR_CFG['token']
 WHATSAPP_LINK = "https://wa.me/201500236188"
 ADMIN_IDS = [8865738615, 7929701751]
 GOLD_API_KEY = os.getenv("GOLD_API_KEY", "")
@@ -297,7 +297,7 @@ async def notify_market_reopening(context: ContextTypes.DEFAULT_TYPE):
         db = SessionLocal()
         users = db.query(TradingUser).filter(TradingUser.is_blocked == False).all()
         db.close()
-        msg = "🔔 *عودة السوق للعمل!*\n\nتم فتح سوق " + PAIR_CFG["symbol"] + " الآن. يمكنك طلب إشارات التداول كالمعتاد.\n\nاستخدم /start للقائمة الرئيسية."
+        msg = "🔔 *عودة السوق للعمل!*\n\nتم فتح سوق " + PAIR_CFG['symbol'] + " الآن. يمكنك طلب إشارات التداول كالمعتاد.\n\nاستخدم /start للقائمة الرئيسية."
         sent = 0
         for u in users:
             try:
@@ -626,38 +626,38 @@ class GoldPriceManager:
 
         # 3. goldprice.org (للذهب فقط)
         if PAIR_CFG.get("is_gold", False):
-        try:
-            r = requests.get(
-                "https://data-asg.goldprice.org/GetData/USD-XAU/1",
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=5
-            )
-            if r.status_code == 200:
-                data = r.json()
-                if data and len(data) > 0:
-                    price = float(data[0].split(",")[1])
-                    if price > 100:
-                        return {"price": price, "source": "goldprice.org"}
-        except Exception as e:
-            logger.warning(f"goldprice.org فشل: {e}")
+            try:
+                r = requests.get(
+                    "https://data-asg.goldprice.org/GetData/USD-XAU/1",
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    timeout=5
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    if data and len(data) > 0:
+                        price = float(data[0].split(",")[1])
+                        if price > 100:
+                            return {"price": price, "source": "goldprice.org"}
+            except Exception as e:
+                logger.warning(f"goldprice.org فشل: {e}")
 
         # 4. metals.live (للذهب فقط)
         if PAIR_CFG.get("is_gold", False):
-        try:
-            r = requests.get(
-                "https://metals.live/api/spot",
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=5
-            )
-            if r.status_code == 200:
-                data = r.json()
-                for item in data:
-                    if item.get("metal") == "gold":
-                        price = float(item.get("price", 0))
-                        if price > 100:
-                            return {"price": price, "source": "metals.live"}
-        except Exception as e:
-            logger.warning(f"metals.live فشل: {e}")
+            try:
+                r = requests.get(
+                    "https://metals.live/api/spot",
+                    headers={"User-Agent": "Mozilla/5.0"},
+                    timeout=5
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    for item in data:
+                        if item.get("metal") == "gold":
+                            price = float(item.get("price", 0))
+                            if price > 100:
+                                return {"price": price, "source": "metals.live"}
+            except Exception as e:
+                logger.warning(f"metals.live فشل: {e}")
 
         # 5. goldapi.io (إذا توفر مفتاح)
         if PAIR_CFG.get("is_gold", False) and GOLD_API_KEY:
@@ -686,7 +686,7 @@ class GoldPriceManager:
     def update(self) -> dict:
         result = self.fetch_price()
         price = result.get("price")
-        if price and price > PAIR_CFG["min_price"]:
+        if price and price > PAIR_CFG['min_price']:
             self.current_price = price
             self.last_update = datetime.utcnow()
             self.session = self._get_trading_session()
@@ -697,7 +697,7 @@ class GoldPriceManager:
         return result
 
     def feed_ws_price(self, price: float):
-        if not price or price < PAIR_CFG["min_price"]:
+        if not price or price < PAIR_CFG['min_price']:
             return
         self.current_price = price
         self.last_update = datetime.utcnow()
@@ -752,8 +752,8 @@ class FinnhubWebSocket:
         self._connected   = True
         self._reconnecting = False
         key = self._current_key()
-        logger.info("Finnhub WS متصل (..." + key[-6:] + ") — اشتراك " + PAIR_CFG["ws_symbol"])
-        ws.send(json.dumps({"type": "subscribe", "symbol": PAIR_CFG["ws_symbol"]}))
+        logger.info("Finnhub WS متصل (..." + key[-6:] + ") — اشتراك " + PAIR_CFG['ws_symbol'])
+        ws.send(json.dumps({"type": "subscribe", "symbol": PAIR_CFG['ws_symbol']}))
 
     def _on_message(self, ws, message):
         try:
@@ -766,10 +766,10 @@ class FinnhubWebSocket:
                 return
             for trade in data.get("data", []):
                 price = trade.get("p")
-                if price and float(price) > PAIR_CFG["min_price"] and price != self._last_price:
+                if price and float(price) > PAIR_CFG['min_price'] and price != self._last_price:
                     self._last_price = price
                     gold_manager.feed_ws_price(float(price))
-                    logger.info("WS " + PAIR_CFG["symbol"] + ": " + str(round(float(price), PAIR_CFG["decimals"])))
+                    logger.info("WS " + PAIR_CFG['symbol'] + ": " + str(round(float(price), PAIR_CFG['decimals'])))
         except Exception as e:
             logger.warning("WS message error: " + str(e))
 
@@ -1125,9 +1125,9 @@ def format_signal(sig: dict) -> str:
     bar = CONFIDENCE_BAR(sig["confidence"])
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    pair_sym = PAIR_CFG["symbol"]
-    cur = PAIR_CFG["currency"]
-    dec = PAIR_CFG["decimals"]
+    pair_sym = PAIR_CFG['symbol']
+    cur = PAIR_CFG['currency']
+    dec = PAIR_CFG['decimals']
     text = f"""⚡ **إشارة تداول VIP | {pair_sym}**
 ━━━━━━━━━━━━━━━━━━━━━━━━
 📌 **الاتجاه:** {direction_ar}
@@ -1536,11 +1536,11 @@ async def alert_entry(update, context):
             d = "↑ فوق" if a.direction == "above" else "↓ تحت"
             alerts_text += "• " + d + " $" + str(a.target_price) + "\n"
     await query.edit_message_text(
-        "🔔 *تنبيهات سعر " + PAIR_CFG["display_name"] + "*\n"
+        "🔔 *تنبيهات سعر " + PAIR_CFG['display_name'] + "*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "أرسل السعر الذي تريد التنبيه عنده.\n"
         "مثال: 3200 أو 3050\n\n"
-        "📌 سيصلك تنبيه عندما يصل سعر " + PAIR_CFG["display_name"] + " لهذا المستوى." + alerts_text + "\n\nللإلغاء: /cancel",
+        "📌 سيصلك تنبيه عندما يصل سعر " + PAIR_CFG['display_name'] + " لهذا المستوى." + alerts_text + "\n\nللإلغاء: /cancel",
         parse_mode="Markdown"
     )
     return ALERT_PRICE
@@ -1548,10 +1548,10 @@ async def alert_entry(update, context):
 async def alert_recv_price(update, context):
     try:
         price = float(update.message.text.strip().replace(",", ""))
-        if not (PAIR_CFG["min_price"] <= price <= 9_999_999):
+        if not (PAIR_CFG['min_price'] <= price <= 9_999_999):
             raise ValueError
     except ValueError:
-        await update.message.reply_text("❌ سعر غير صحيح. أدخل رقماً صحيحاً لـ " + PAIR_CFG["display_name"])
+        await update.message.reply_text("❌ سعر غير صحيح. أدخل رقماً صحيحاً لـ " + PAIR_CFG['display_name'])
         return ALERT_PRICE
     uid = str(update.effective_user.id)
     if not finnhub_ws.is_data_fresh():
@@ -1621,7 +1621,7 @@ async def check_gold_alerts(context):
                 await context.bot.send_message(
                     chat_id=a.tg_id,
                     text=(
-                        f"🔔 *تنبيه سعر {PAIR_CFG["display_name"]}!*\n"
+                        f"🔔 *تنبيه سعر {PAIR_CFG['display_name']}!*\n"
                         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
                         "⚡ وصل السعر للمستوى المحدد!\n\n"
                         "🎯 هدفك: $" + str(a.target_price) + "\n"
@@ -1666,10 +1666,10 @@ async def daily_morning_summary(context):
         ).all()
         db.close()
         summary = (
-            f"🌅 *صباح الخير — ملخص سوق {PAIR_CFG["display_name"]}*\n"
+            f"🌅 *صباح الخير — ملخص سوق {PAIR_CFG['display_name']}*\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "📅 " + datetime.now().strftime("%Y-%m-%d") + "\n"
-            "💰 سعر " + PAIR_CFG["display_name"] + " الحالي: " + PAIR_CFG["currency"] + str(round(price, PAIR_CFG["decimals"])) + "\n"
+            "💰 سعر " + PAIR_CFG['display_name'] + " الحالي: " + PAIR_CFG['currency'] + str(round(price, PAIR_CFG['decimals'])) + "\n"
             "🕐 الجلسة الحالية: " + session + sig_text + "\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "💎 حساب VIP مفعّل | تداول بثقة وإدارة مخاطر 📊"
@@ -1840,18 +1840,18 @@ def fetch_gold_news():
         return []
 
 async def handle_gold_news(query):
-    await query.edit_message_text("📰 جاري جلب آخر أخبار " + PAIR_CFG["display_name"] + "...", parse_mode="Markdown")
+    await query.edit_message_text("📰 جاري جلب آخر أخبار " + PAIR_CFG['display_name'] + "...", parse_mode="Markdown")
     news = fetch_gold_news()
     if news:
-        text = "📰 *آخر أخبار " + PAIR_CFG["display_name"] + "*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        text = "📰 *آخر أخبار " + PAIR_CFG['display_name'] + "*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
         for i, n in enumerate(news, 1):
             text += str(i) + ". " + n[:100] + "\n\n"
         text += "━━━━━━━━━━━━━━━━━━━━━━━━\n🔄 يتجدد كل ساعة | المصدر: Yahoo Finance / Kitco"
     else:
-        text = ("📰 *آخر أخبار " + PAIR_CFG["display_name"] + "*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        text = ("📰 *آخر أخبار " + PAIR_CFG['display_name'] + "*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "⚠️ تعذّر جلب الأخبار حالياً\n\n"
                 "📌 *أبرز المستجدات اليوم:*\n"
-                "• " + PAIR_CFG["display_name"] + " يتداول قرب مستويات مهمة\n"
+                "• " + PAIR_CFG['display_name'] + " يتداول قرب مستويات مهمة\n"
                 "• ترقّب بيانات التضخم الأمريكية\n"
                 "• الطلب الآسيوي يدعم السعر")
     await query.edit_message_text(
@@ -1947,7 +1947,7 @@ async def evening_market_summary(context):
             "🌙 *ملخص ما بعد السوق*\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "📅 " + datetime.now().strftime("%Y-%m-%d") + "\n"
-            "💰 سعر إغلاق " + PAIR_CFG["display_name"] + ": " + PAIR_CFG["currency"] + str(round(price, PAIR_CFG["decimals"])) + change_text + direction_text + "\n\n"
+            "💰 سعر إغلاق " + PAIR_CFG['display_name'] + ": " + PAIR_CFG['currency'] + str(round(price, PAIR_CFG['decimals'])) + change_text + direction_text + "\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "📊 تابعنا غداً لمزيد من الإشارات الدقيقة!"
         )
@@ -2021,7 +2021,7 @@ async def handle_admin_dashboard(query, user_id):
     await query.edit_message_text(
         "📊 *لوحة تحكم الأدمن*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "💰 سعر " + PAIR_CFG["display_name"] + ": " + PAIR_CFG["currency"] + str(round(price, PAIR_CFG["decimals"])) + " | جلسة: " + session + "\n\n"
+        "💰 سعر " + PAIR_CFG['display_name'] + ": " + PAIR_CFG['currency'] + str(round(price, PAIR_CFG['decimals'])) + " | جلسة: " + session + "\n\n"
         "👥 *المستخدمون:*\n"
         "• الإجمالي: `" + str(total) + "`\n"
         "• VIP: `" + str(vip) + "`\n"
@@ -2176,7 +2176,7 @@ async def check_trade_signals(context):
                   msg = (
                       label + "\n"
                       "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                      "📊 الإشارة: " + sig.direction + " " + PAIR_CFG["symbol"] + "\n"
+                      "📊 الإشارة: " + sig.direction + " " + PAIR_CFG['symbol'] + "\n"
                       "💰 سعر الدخول: $" + str(sig.entry) + "\n"
                       "📍 السعر الحالي: $" + str(round(price, 2)) + "\n"
                       "📈 الفرق: " + pnl + "\n"
@@ -2460,7 +2460,7 @@ async def handle_get_signal(query, user_id):
     if not is_vip:
         demo = _generate_demo_signal()
         if not demo:
-            text = ""f"⚡ *إشارات {PAIR_CFG['symbol']}*
+            text = f"""⚡ *إشارات {PAIR_CFG['symbol']}*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ⏳ النظام يجمع بيانات السوق...
 
@@ -2474,7 +2474,7 @@ async def handle_get_signal(query, user_id):
             ])
             await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
             return
-        text = f""f"⚡ *معاينة إشارة | {PAIR_CFG['symbol']}*
+        text = f"""⚡ *معاينة إشارة | {PAIR_CFG['symbol']}*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 🔒 *هذه معاينة فقط — الأرقام الحقيقية لأعضاء VIP*
 
@@ -2848,7 +2848,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
 🥉 *الخطة الفضية — 10$*
-• سعر " + PAIR_CFG["display_name"] + " الحي لحظة بلحظة
+• سعر " + PAIR_CFG['display_name'] + " الحي لحظة بلحظة
 • 3 إشارات يومياً (كاملة مع الأرقام)
 • مؤشرات RSI + MACD
 • معلومة الجلسة (لندن/نيويورك/آسيا)
@@ -2907,7 +2907,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "plan_pro":
             msg = """🥈 *الخطة الذهبية — 20$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✅ سعر " + PAIR_CFG["display_name"] + " الحي لحظة بلحظة
+✅ سعر " + PAIR_CFG['display_name'] + " الحي لحظة بلحظة
 ✅ 10 إشارات يومياً (كاملة)
 ✅ دخول + TP1 + TP2 + TP3 + وقف الخسارة
 ✅ جميع المؤشرات الـ12:
@@ -2929,7 +2929,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "plan_vip":
             msg = """💎 *الخطة الماسية VIP — 50$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✅ سعر " + PAIR_CFG["display_name"] + " الحي لحظة بلحظة
+✅ سعر " + PAIR_CFG['display_name'] + " الحي لحظة بلحظة
 ✅ إشارات تلقائية غير محدودة 24/7
 ✅ دخول + TP1 + TP2 + TP3 + وقف الخسارة
 ✅ جميع المؤشرات الـ12 كاملة
@@ -3147,7 +3147,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "📊 *أرقام حقيقية لا وعود فارغة*\n"
                 "• دقة التوقع: 65%–79% موثّقة\n"
                 "• أكثر من 500 إشارة ناجحة\n"
-                "• متابعة لحظية لسعر " + PAIR_CFG["display_name"] + " 24/7\n\n"
+                "• متابعة لحظية لسعر " + PAIR_CFG['display_name'] + " 24/7\n\n"
                 "🤖 *ميزات حصرية لأعضاء VIP*\n"
                 f"• إشارات {PAIR_CFG['symbol']} فورية بدخول وTP وSL\n"
                 "• تحليل شارت بالذكاء الاصطناعي\n"
@@ -3994,7 +3994,7 @@ async def market_reopen_check(context: ContextTypes.DEFAULT_TYPE):
 DAILY_REMINDERS = [
     """⚡ *تذكير يومي من نظام التداول الذكي*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-📊 سوق " + PAIR_CFG["symbol"] + " يتحرك الآن!
+📊 سوق " + PAIR_CFG['symbol'] + " يتحرك الآن!
 النظام يراقب 12 مصدر تأكيد لحظة بلحظة.
 
 💡 *نصيحة اليوم:*
@@ -4042,7 +4042,7 @@ async def daily_reminder_job(context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="Markdown",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("⚡ عرض الإشارات", callback_data="get_signal"),
-                         InlineKeyboardButton("💰 سعر " + PAIR_CFG["display_name"], callback_data="gold_price")]
+                         InlineKeyboardButton("💰 سعر " + PAIR_CFG['display_name'], callback_data="gold_price")]
                     ])
                 )
                 sent += 1
