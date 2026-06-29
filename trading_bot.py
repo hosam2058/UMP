@@ -332,14 +332,15 @@ class GeminiManager:
         self.exhausted = set()
         # نماذج النص فقط
         self.text_models = [
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
             "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-1.5-flash-latest",
         ]
-        # نماذج الرؤية (صور الشارت) - هذه فقط تدعم الصور
+        # نماذج الرؤية (صور الشارت) - تدعم الصور
         self.vision_models = [
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-1.5-flash-latest",
         ]
         logger.info(f"✅ GeminiManager: {len(self.valid_keys)} مفتاح نشط")
 
