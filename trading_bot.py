@@ -355,9 +355,6 @@ class GeminiManager:
         self.exhausted.add(self.current_index)
 
     async def generate(self, prompt: str, image_data: bytes = None, image_mime: str = "image/jpeg") -> str:
-        import PIL.Image
-        import io as _io
-
         models = self.vision_models if image_data else self.text_models
         max_attempts = max(len(self.valid_keys) * len(models), 1)
 
