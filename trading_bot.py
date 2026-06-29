@@ -68,7 +68,7 @@ class TradingUser(Base):
 class Signal(Base):
     __tablename__ = "signals"
     id = Column(Integer, primary_key=True)
-    pair = Column(String, default="XAUUSD")
+    pair = Column(String, default=TRADING_PAIR)
     direction = Column(String)
     entry_price = Column(Float)
     tp1 = Column(Float)
@@ -241,6 +241,10 @@ def is_market_open() -> tuple:
     XAUUSD يغلق: الجمعة 22:00 UTC
     XAUUSD يفتح: الأحد   22:00 UTC
     """
+    # ── 0. أزواج العملات الرقمية مفتوحة 24/7 ───────────────────
+    if PAIR_CFG.get("is_24_7", False):
+        return True, f"✅ سوق {PAIR_CFG['display_name']} ({PAIR_CFG['symbol']}) مفتوح 24 ساعة / 7 أيام."
+
     now = datetime.utcnow()
     weekday = now.weekday()   # 0=الاثنين .. 4=الجمعة .. 5=السبت .. 6=الأحد
     hour    = now.hour
@@ -293,7 +297,7 @@ async def notify_market_reopening(context: ContextTypes.DEFAULT_TYPE):
         db = SessionLocal()
         users = db.query(TradingUser).filter(TradingUser.is_blocked == False).all()
         db.close()
-        msg = "🔔 *عودة السوق للعمل!*\n\nتم فتح سوق XAUUSD الآن. يمكنك طلب إشارات التداول كالمعتاد.\n\nاستخدم /start للقائمة الرئيسية."
+        msg = "🔔 *عودة السوق للعمل!*\n\nتم فتح سوق " + PAIR_CFG["symbol"] + " الآن. يمكنك طلب إشارات التداول كالمعتاد.\n\nاستخدم /start للقائمة الرئيسية."
         sent = 0
         for u in users:
             try:
@@ -586,7 +590,7 @@ class GoldPriceManager:
             return "متداخلة 🌍"
 
     def fetch_price(self) -> dict:
-        """جلب سعر الذهب الحقيقي — يجرب 5 مصادر بالترتيب"""
+        """جلب سعر الزوج الحقيقي — يجرب 5 مصادر بالترتيب"""
 
         # 1. Yahoo Finance (الاوثق، بدون API key)
         try:
@@ -620,7 +624,8 @@ class GoldPriceManager:
         except Exception as e:
             logger.warning(f"Yahoo Finance v7 فشل: {e}")
 
-        # 3. goldprice.org
+        # 3. goldprice.org (للذهب فقط)
+        if PAIR_CFG.get("is_gold", False):
         try:
             r = requests.get(
                 "https://data-asg.goldprice.org/GetData/USD-XAU/1",
@@ -636,7 +641,8 @@ class GoldPriceManager:
         except Exception as e:
             logger.warning(f"goldprice.org فشل: {e}")
 
-        # 4. metals.live
+        # 4. metals.live (للذهب فقط)
+        if PAIR_CFG.get("is_gold", False):
         try:
             r = requests.get(
                 "https://metals.live/api/spot",
@@ -654,7 +660,7 @@ class GoldPriceManager:
             logger.warning(f"metals.live فشل: {e}")
 
         # 5. goldapi.io (إذا توفر مفتاح)
-        if GOLD_API_KEY:
+        if PAIR_CFG.get("is_gold", False) and GOLD_API_KEY:
             try:
                 r = requests.get(
                     "https://www.goldapi.io/api/XAU/USD",
@@ -1157,7 +1163,7 @@ def format_signal(sig: dict) -> str:
 def main_menu():
     keyboard = [
         [InlineKeyboardButton("⚡ إشارة تداول الآن", callback_data="get_signal"),
-         InlineKeyboardButton("💰 سعر الذهب المباشر", callback_data="live_gold")],
+         InlineKeyboardButton(f"💰 سعر {PAIR_CFG['display_name']} المباشر", callback_data="live_gold")],
         [InlineKeyboardButton("📊 تحليل استراتيجيتي", callback_data="strategy_analysis"),
          InlineKeyboardButton("🧠 تحليل شارت بالذكاء الاصطناعي", callback_data="analyze_chart")],
         [InlineKeyboardButton("🎯 خطط الاشتراك والأسعار", callback_data="plans")],
@@ -1175,13 +1181,13 @@ def vip_menu():
     """قائمة لأعضاء VIP — ميزات كاملة"""
     keyboard = [
         [InlineKeyboardButton("⚡ إشارة تداول الآن", callback_data="get_signal"),
-         InlineKeyboardButton("💰 سعر الذهب المباشر", callback_data="live_gold")],
+         InlineKeyboardButton(f"💰 سعر {PAIR_CFG['display_name']} المباشر", callback_data="live_gold")],
         [InlineKeyboardButton("📊 تحليل استراتيجيتي", callback_data="strategy_analysis"),
          InlineKeyboardButton("🧠 تحليل شارت بالذكاء الاصطناعي", callback_data="analyze_chart")],
         [InlineKeyboardButton("🤖 تداول آلي Auto Trading 🤖", callback_data="auto_trading_menu")],
         [InlineKeyboardButton("🔔 تنبيه سعر", callback_data="set_alert"),
          InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer")],
-        [InlineKeyboardButton("📰 أخبار الذهب", callback_data="gold_news"),
+        [InlineKeyboardButton(f"📰 أخبار {PAIR_CFG['display_name']}", callback_data="gold_news"),
          InlineKeyboardButton("🏆 نتائج التوصيات", callback_data="results_menu")],
         [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
          InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
@@ -1194,11 +1200,11 @@ def trial_menu():
     """قائمة لمستخدمي التجربة المجانية"""
     keyboard = [
         [InlineKeyboardButton("⚡ إشارة تداول (تجربة)", callback_data="get_signal"),
-         InlineKeyboardButton("💰 سعر الذهب المباشر", callback_data="live_gold")],
+         InlineKeyboardButton(f"💰 سعر {PAIR_CFG['display_name']} المباشر", callback_data="live_gold")],
         [InlineKeyboardButton("💎 اشترك VIP — إشارات كاملة", callback_data="plans")],
         [InlineKeyboardButton("🔔 تنبيه سعر", callback_data="set_alert"),
          InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer")],
-        [InlineKeyboardButton("📰 أخبار الذهب", callback_data="gold_news"),
+        [InlineKeyboardButton(f"📰 أخبار {PAIR_CFG['display_name']}", callback_data="gold_news"),
          InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods")],
         [InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK),
          InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
@@ -1210,7 +1216,7 @@ def expired_menu():
     keyboard = [
         [InlineKeyboardButton("💎 اشترك VIP الآن 🔥", callback_data="plans")],
         [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
-         InlineKeyboardButton("💰 سعر الذهب المباشر", callback_data="live_gold")],
+         InlineKeyboardButton(f"💰 سعر {PAIR_CFG['display_name']} المباشر", callback_data="live_gold")],
         [InlineKeyboardButton("👤 حسابي", callback_data="my_account"),
          InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
         [InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
@@ -1226,7 +1232,7 @@ def back_menu():
 
 def results_menu():
     keyboard = [
-        [InlineKeyboardButton("📉 نتائج الذهب XAUUSD", callback_data="res_xauusd")],
+        [InlineKeyboardButton(f"📉 نتائج {PAIR_CFG['display_name']} {PAIR_CFG['symbol']}", callback_data="res_xauusd")],
         [InlineKeyboardButton("₿ نتائج البيتكوين BTC", callback_data="res_btc")],
         [InlineKeyboardButton("📊 ميزة التعرف على الأنماط", callback_data="pattern_recognition")],
         [InlineKeyboardButton("🔙 العودة", callback_data="start")]
@@ -1615,7 +1621,7 @@ async def check_gold_alerts(context):
                 await context.bot.send_message(
                     chat_id=a.tg_id,
                     text=(
-                        "🔔 *تنبيه سعر الذهب!*\n"
+                        f"🔔 *تنبيه سعر {PAIR_CFG["display_name"]}!*\n"
                         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
                         "⚡ وصل السعر للمستوى المحدد!\n\n"
                         "🎯 هدفك: $" + str(a.target_price) + "\n"
@@ -1660,7 +1666,7 @@ async def daily_morning_summary(context):
         ).all()
         db.close()
         summary = (
-            "🌅 *صباح الخير — ملخص سوق الذهب*\n"
+            f"🌅 *صباح الخير — ملخص سوق {PAIR_CFG["display_name"]}*\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "📅 " + datetime.now().strftime("%Y-%m-%d") + "\n"
             "💰 سعر الذهب الحالي: $" + str(round(price, 2)) + "\n"
@@ -1978,7 +1984,7 @@ async def vip_renewal_reminder(context):
                             "━━━━━━━━━━━━━━━━━━━━━━━━\n"
                             "⏳ اشتراكك ينتهي خلال *" + str(days_left) + "* يوم!\n\n"
                             "جدد الآن واستمر في الاستفادة من:\n"
-                            "• إشارات XAUUSD فورية ⚡\n"
+                            f"• إشارات {PAIR_CFG['symbol']} فورية ⚡\n"
                             "• تداول آلي مع MT5 🤖\n"
                             "• تنبيهات سعر مخصصة 🔔\n"
                             "• ملخص يومي 🌅\n\n"
@@ -2170,7 +2176,7 @@ async def check_trade_signals(context):
                   msg = (
                       label + "\n"
                       "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                      "📊 الإشارة: " + sig.direction + " XAUUSD\n"
+                      "📊 الإشارة: " + sig.direction + " " + PAIR_CFG["symbol"] + "\n"
                       "💰 سعر الدخول: $" + str(sig.entry) + "\n"
                       "📍 السعر الحالي: $" + str(round(price, 2)) + "\n"
                       "📈 الفرق: " + pnl + "\n"
@@ -2290,7 +2296,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🧠 نظام تحليل بـ *12 مصدر تأكيد*
 📊 مؤشرات: RSI • MACD • Bollinger • Fibonacci • ATR • Stochastic
 🎯 دقة التوقع: *65%-79%*
-⚡ إشارات XAUUSD لحظية بالوقت الحقيقي
+⚡ إشارات " + PAIR_CFG['symbol'] + " لحظية بالوقت الحقيقي
 📊 تحليل استراتيجيتك بالذكاء الاصطناعي
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2325,7 +2331,7 @@ async def handle_live_gold(query):
     session = gold_manager._get_trading_session()
 
     if not price:
-        text = f"""📊 *سعر الذهب XAUUSD*
+        text = f"""📊 *{PAIR_CFG['display_name']} {PAIR_CFG['symbol']}*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ⏳ *جاري جلب السعر الحقيقي من المصادر...*
 
@@ -2360,7 +2366,7 @@ async def handle_live_gold(query):
 
     rsi_text = f"`{rsi}` {'🔴 تشبع شرائي' if rsi and rsi > 65 else '🟢 تشبع بيعي' if rsi and rsi < 35 else '⚪ محايد'}" if rsi else "⏳ يُحسب..."
 
-    text = f"""💰 *سعر الذهب XAUUSD*
+    text = f"""💰 *{PAIR_CFG['display_name']} {PAIR_CFG['symbol']}*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 💎 *السعر الحالي:* `${price:,.2f}`
 {trend} | {direction}
@@ -2454,7 +2460,7 @@ async def handle_get_signal(query, user_id):
     if not is_vip:
         demo = _generate_demo_signal()
         if not demo:
-            text = """⚡ *إشارات XAUUSD*
+            text = ""f"⚡ *إشارات {PAIR_CFG['symbol']}*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ⏳ النظام يجمع بيانات السوق...
 
@@ -2468,7 +2474,7 @@ async def handle_get_signal(query, user_id):
             ])
             await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
             return
-        text = f"""⚡ *معاينة إشارة | XAUUSD*
+        text = f""f"⚡ *معاينة إشارة | {PAIR_CFG['symbol']}*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 🔒 *هذه معاينة فقط — الأرقام الحقيقية لأعضاء VIP*
 
@@ -2676,7 +2682,7 @@ async def cmd_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 الاستراتيجية: {strategy_text}
 
-السوق الحالي: XAUUSD (الذهب) - السعر حوالي ${gold_manager.current_price or 3300}
+السوق الحالي: {PAIR_CFG['symbol']} ({PAIR_CFG['display_name']}) - السعر حوالي ${gold_manager.current_price or 3300}
 
 قدّم تحليلاً مفصلاً يشمل:
 
@@ -2802,7 +2808,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for img in images:
                 if os.path.exists(img):
                     with open(img, 'rb') as f:
-                        await query.message.reply_photo(photo=f, caption="📊 نتائج تداول الذهب XAUUSD")
+                        await query.message.reply_photo(photo=f, caption=f"📊 نتائج تداول {PAIR_CFG['display_name']} {PAIR_CFG['symbol']}")
                     sent = True
             if not sent:
                 await query.edit_message_text("📊 صور النتائج قيد الرفع. تواصل معنا: " + WHATSAPP_LINK, reply_markup=back_menu())
@@ -2879,7 +2885,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "plan_basic":
             msg = """🥉 *الخطة الفضية — 10$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-✅ سعر الذهب الحي لحظة بلحظة (XAUUSD)
+✅ سعر " + PAIR_CFG['display_name'] + " الحي لحظة بلحظة (" + PAIR_CFG['symbol'] + ")
 ✅ 3 إشارات يومياً (كاملة مع الأرقام)
 ✅ دخول + TP1 + وقف الخسارة
 ✅ مؤشر RSI (14 فترة) + MACD (12/26/9)
@@ -3133,7 +3139,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await handle_strategy_analysis(query, user_id)
         elif data == "about":
             await query.edit_message_text(
-                "🏆 *بوت التداول الذكي — XAUUSD Pro*\n"
+                f"🏆 *بوت التداول الذكي — {PAIR_CFG['symbol']} Pro*\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 "⚡ *لماذا نحن الأفضل؟*\n\n"
                 "🧠 *ذكاء اصطناعي متعدد المصادر*\n"
@@ -3143,7 +3149,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "• أكثر من 500 إشارة ناجحة\n"
                 "• متابعة لحظية لسعر الذهب 24/7\n\n"
                 "🤖 *ميزات حصرية لأعضاء VIP*\n"
-                "• إشارات XAUUSD فورية بدخول وTP وSL\n"
+                f"• إشارات {PAIR_CFG['symbol']} فورية بدخول وTP وSL\n"
                 "• تحليل شارت بالذكاء الاصطناعي\n"
                 "• تداول آلي متصل بـ MT5 عبر MetaAPI\n"
                 "• تنبيهات سعر مخصصة 🔔\n"
@@ -3577,7 +3583,7 @@ async def admin_price_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chg = prices[-1] - prices[-5]
         trend = f"📈 +{chg:.2f}" if chg > 0 else f"📉 {chg:.2f}"
     await update.message.reply_text(
-        f"""💰 *بيانات الذهب XAUUSD*
+        f"""💰 *بيانات {PAIR_CFG['display_name']} {PAIR_CFG['symbol']}*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 💎 *السعر:* `${price:,.2f}` {trend}
 📡 *WebSocket:* {ws_st}
@@ -3998,7 +4004,7 @@ DAILY_REMINDERS = [
 🔔 اضغط /start لعرض آخر الإشارات""",
     """🌅 *صباح الخير من بوت التداول!*
 ━━━━━━━━━━━━━━━━━━━━━━━━
-💰 سوق الذهب XAUUSD يفتح مع جلسة جديدة.
+💰 سوق {PAIR_CFG['display_name']} {PAIR_CFG['symbol']} يفتح مع جلسة جديدة.
 نظامنا جاهز لتوليد الإشارات الدقيقة.
 
 📌 *تذكر دائماً:*
@@ -4101,7 +4107,7 @@ async def post_init(application: Application):
         time=dtime(7, 0, 0),
         name="daily_reminder"
     )
-    logger.info("✅ Finnhub WebSocket بدأ (بيانات لحظية XAUUSD)")
+    logger.info(f"✅ Finnhub WebSocket بدأ (بيانات لحظية {PAIR_CFG['symbol']})")
     logger.info("✅ مهمة تحديث الأسعار جدولت كل 3 دقائق (fallback)")
     logger.info("✅ مهمة فتح السوق جدولت كل ساعة")
     logger.info("✅ التذكير اليومي جدول الساعة 9:00 صباحاً")
