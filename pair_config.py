@@ -13,7 +13,7 @@ PAIRS = {
         "currency": "$",
         "decimals": 2,
         "min_price": 100.0,
-        "db_file": "data/xauusd_bot.db",
+        "db_file": "data/trading_bot.db",  # الملف الأصلي — لا تغيّر هذا
         "is_gold": True,
     },
     "BTCUSD": {
