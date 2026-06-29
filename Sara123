@@ -1,0 +1,136 @@
+# Sara123 — سجل كامل لجميع التعديلات والمحادثة
+
+## معلومات المشروع
+- **المستودع:** hosam2058/UMP
+- **الملف الرئيسي:** trading_bot.py (4162 سطر)
+- **المنصة:** Termux على Android
+- **التاريخ:** 29 يونيو 2026
+
+---
+
+## المشاكل التي وجدناها وحللناها
+
+### 1. مشكلة مفاتيح Gemini القديمة
+- **المشكلة:** مفاتيح Gemini القديمة (AIzaSy...) في data/gemini_keys.json كانت لها كوتا = 0 (محظورة)
+- **السبب:** المشاريع المرتبطة بها على Google Cloud ليس لها كوتا
+- **ما تم:** حاولنا رفع مفاتيح جديدة عبر GitHub API لكن GitHub Secret Scanning حظره تلقائياً
+- **الحل:** المستخدم رفع المفاتيح يدوياً عبر متصفح GitHub
+- **النتيجة:** 12 مفتاح نشط يُحمَّل من data/gemini_keys.json
+
+### 2. مشكلة GeminiManager لا يقرأ المفاتيح من JSON
+- **الملف:** trading_bot.py — دالة GeminiManager.__init__
+- **المشكلة:** البوت كان يحاول قراءة مفاتيح من متغيرات بيئة فقط (GEMINI_KEY_1..15)
+- **الإصلاح:** أضفنا fallback لقراءة data/gemini_keys.json إذا غابت متغيرات البيئة
+- **Commit:** (مرفوع على GitHub)
+
+### 3. مشكلة No module named 'PIL'
+- **المشكلة:** دالة generate() في GeminiManager كانت تحتوي على:
+  ```python
+  import PIL.Image
+  import io as _io
+  ```
+  في أول سطرين داخل الدالة — تنفذ عند كل استدعاء
+- **السبب:** مكتبة Pillow غير مثبتة في Termux
+- **الإصلاح الأول:** استبدال PIL.Image بـ inline data: {"mime_type": ..., "data": bytes}
+- **الإصلاح الثاني:** حذف سطري import PIL.Image و import io as _io من داخل الدالة
+- **Commits:** 028f188، f525216
+
+### 4. مشكلة نماذج Gemini 404
+- **المشكلة:** نماذج gemini-1.5-flash و gemini-1.5-pro أعطت 404
+  ```
+  404 models/gemini-1.5-flash is not found for API version v1beta
+  ```
+- **السبب:** هذه النماذج محذوفة من API version v1beta
+- **الإصلاح:** تحديث vision_models و text_models إلى:
+  - gemini-2.0-flash-lite (الأول — أقل ضغطاً على الكوتا)
+  - gemini-2.0-flash
+  - gemini-1.5-flash-latest
+  - gemini-1.5-flash-8b-latest
+- **Commit:** 30068b8، 7739d54
+
+### 5. اكتشاف أن جميع مفاتيح Gemini (كلا النوعين) لها كوتا = 0
+- **التشخيص:** اختبار مباشر عبر curl:
+  ```bash
+  curl "https://generativelanguage.googleapis.com/.../gemini-2.0-flash:generateContent?key=KEY"
+  ```
+- **النتيجة:** `"limit": 0` — الكوتا مضبوطة على صفر في المشروع
+- **المفاتيح AQ.Ab8RN6:** أكد المستخدم أنه أخذها من Gemini — لكن مشاريعها أيضاً كوتا = 0
+- **الحالة:** مشكلة لم تُحَل — المستخدم يحتاج مفاتيح من مشاريع Google Cloud جديدة
+
+### 6. توسيع البوت لدعم 3 أزواج (XAU، BTC، EUR)
+- **الطلب:** إضافة BTCUSD و EURUSD مع الحفاظ على نفس الكود
+- **التوكنات الجديدة:**
+  - BTC: 8515228176:AAEaXyMxXT0tS8h4QUjSQJh1mXHLEI-kaVI
+  - EUR: 8385015566:AAHzlqBKey9_Wz4ktgeZudZchUGCL6e0RBQ
+- **الحل:** ملف pair_config.py جديد + تعديل trading_bot.py
+
+#### ملف pair_config.py (جديد):
+- XAUUSD: Yahoo=GC=F، WS=OANDA:XAU_USD، decimals=2، min_price=100
+- BTCUSD: Yahoo=BTC-USD، WS=BINANCE:BTCUSDT، decimals=2، min_price=1000
+- EURUSD: Yahoo=EURUSD=X، WS=OANDA:EUR_USD، decimals=5، min_price=0.5
+
+#### التعديلات في trading_bot.py:
+1. إضافة: `TRADING_PAIR = os.getenv("TRADING_PAIR", "XAUUSD").upper()`
+2. إضافة: `from pair_config import PAIR_CFG`
+3. BOT_TOKEN: `PAIR_CFG["token"]` بدلاً من hardcoded
+4. DATABASE_URL: `PAIR_CFG["db_file"]` بدلاً من hardcoded
+5. Yahoo Finance URLs: تستخدم `PAIR_CFG["yahoo_symbol"]`
+6. حراسة السعر: `PAIR_CFG["min_price"]` بدلاً من 100
+7. WS subscription: `PAIR_CFG["ws_symbol"]`
+8. تنسيق الأسعار في الإشارات: `PAIR_CFG["decimals"]`
+
+### 7. خطأ في pair_config.py — XAUUSD استخدم DB خاطئ
+- **المشكلة:** غيّرنا XAUUSD من data/trading_bot.db إلى data/xauusd_bot.db
+- **التأثير:** ضاعت بيانات المستخدمين/VIP/Admin الموجودة
+- **الإصلاح:** إعادة XAUUSD لاستخدام data/trading_bot.db الأصلي
+
+---
+
+## طريقة التشغيل
+
+```bash
+# تحديث الكود
+cd ~/UMP && git pull origin main
+
+# تشغيل بوت الذهب (في نافذة 1)
+python trading_bot.py
+
+# تشغيل بوت البيتكوين (في نافذة 2)
+TRADING_PAIR=BTCUSD python trading_bot.py
+
+# تشغيل بوت اليورو (في نافذة 3)
+TRADING_PAIR=EURUSD python trading_bot.py
+```
+
+---
+
+## هيكل الملفات المهمة
+
+```
+UMP/
+├── trading_bot.py          # الكود الرئيسي (4162 سطر)
+├── pair_config.py          # إعدادات الأزواج الثلاثة (جديد)
+├── auto_trader.py          # محرك التداول الآلي
+├── data/
+│   ├── trading_bot.db      # قاعدة بيانات الذهب (الأصلية)
+│   ├── btcusd_bot.db       # قاعدة بيانات BTC (جديدة)
+│   ├── eurusd_bot.db       # قاعدة بيانات EUR (جديدة)
+│   └── gemini_keys.json    # 12 مفتاح Gemini
+└── Sara123                 # هذا الملف
+```
+
+---
+
+## المشاكل التي لا تزال قائمة
+
+1. **مفاتيح Gemini:** كوتا = 0 لجميع المفاتيح — يحتاج مفاتيح جديدة من مشاريع Google مختلفة
+2. **تحليل الشارت:** لن يعمل حتى تُحَل مشكلة الكوتا
+
+---
+
+## ملاحظات تقنية مهمة
+
+- Finnhub WebSocket مجاني يدعم XAU و BTC و EUR
+- نماذج Gemini الصالحة الآن: gemini-2.0-flash-lite، gemini-2.0-flash، gemini-1.5-flash-latest
+- مفاتيح Gemini الصحيحة تبدأ بـ AIzaSy (من aistudio.google.com/apikey)
+- مفاتيح AQ.Ab8RN6 صالحة تقنياً لكن مشاريعها محظورة
