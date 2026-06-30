@@ -176,6 +176,22 @@ def _migrate_db():
                 pass
 _migrate_db()
 
+def _ensure_admins_vip():
+    """تأكد أن كل ADMIN_IDS هم VIP دائماً عند بدء البوت"""
+    _ADMIN_IDS = [8865738615, 7929701751]
+    db = SessionLocal()
+    try:
+        for aid in _ADMIN_IDS:
+            u = db.query(TradingUser).filter(TradingUser.tg_id == str(aid)).first()
+            if u and not u.is_vip:
+                u.is_vip = True
+                db.commit()
+    except Exception:
+        pass
+    finally:
+        db.close()
+_ensure_admins_vip()
+
 SIGNAL_FILE = "data/latest_signal.json"
 STATS_FILE  = "data/website_stats.json"
 
