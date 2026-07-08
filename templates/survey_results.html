@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نتائج الاستبيانات - MATRIX</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg: #0a0a0b;
+            --card-bg: #111114;
+            --neon: #00f2ff;
+            --neon-dim: rgba(0, 242, 255, 0.1);
+            --text: #e0e0e0;
+        }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+        }
+        .container { max-width: 1000px; }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 20px;
+            border-bottom: 1px solid var(--neon-dim);
+        }
+        .header h1 {
+            color: var(--neon);
+            text-shadow: 0 0 10px var(--neon-dim);
+        }
+        .survey-card {
+            background: var(--card-bg);
+            border: 1px solid #222;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+            transition: 0.3s;
+        }
+        .survey-card:hover { border-color: var(--neon); }
+        .bot-tag {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            margin-bottom: 10px;
+        }
+        .bot-1 { background: #0055ff; color: white; }
+        .bot-2 { background: #ffaa00; color: black; }
+        .option-row {
+            margin-bottom: 15px;
+        }
+        .progress {
+            height: 10px;
+            background-color: #222;
+            border-radius: 5px;
+            overflow: visible;
+        }
+        .progress-bar {
+            background-color: var(--neon);
+            box-shadow: 0 0 10px var(--neon-dim);
+            border-radius: 5px;
+        }
+        .option-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 0.95rem;
+        }
+        .count { color: var(--neon); font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-chart-bar"></i> نتائج الاستبيانات المتقدمة</h1>
+            <p class="text-muted">إحصائيات التصويت المباشرة من جميع البوتات</p>
+        </div>
+
+        {% if surveys %}
+            {% for s in surveys %}
+            <div class="survey-card">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <span class="bot-tag {{ 'bot-1' if s.bot == 'بوت التحميل' else 'bot-2' }}">
+                            <i class="fas fa-robot"></i> {{ s.bot }}
+                        </span>
+                        <h4 class="mt-2">{{ s.question }}</h4>
+                    </div>
+                    <div class="text-end">
+                        <div class="text-muted mb-1" style="font-size: 0.8rem;">
+                            <i class="fas fa-clock"></i> {{ s.created_at }}
+                        </div>
+                        <div class="text-neon" style="font-size: 0.9rem; font-weight: bold;">
+                            <i class="fas fa-users"></i> إجمالي المشاركين: {{ s.options|sum(attribute='count') }}
+                        </div>
+                    </div>
+                </div>
+                
+                {% for opt in s.options %}
+                <div class="option-row p-3 mb-2 rounded" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);">
+                    <div class="option-info">
+                        <span class="fw-bold">{{ opt.text }}</span>
+                        <span class="count">{{ opt.count }} صوت ({{ ((opt.count / (s.options|sum(attribute='count')) * 100)|round(1)) if s.options|sum(attribute='count') > 0 else 0 }}%)</span>
+                    </div>
+                    <div class="progress mb-2">
+                        <div class="progress-bar" role="progressbar" style="width: 0%;" data-count="{{ opt.count }}"></div>
+                    </div>
+                    {% if opt.response %}
+                    <div class="response-box mt-2 p-2 rounded" style="background: var(--neon-dim); border-right: 3px solid var(--neon);">
+                        <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">الرد التلقائي للمصوتين:</div>
+                        <div style="font-size: 0.9rem;">{{ opt.response }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="text-center py-5">
+                <i class="fas fa-poll-h fa-4x mb-3 text-muted"></i>
+                <h3>لا توجد استبيانات حالياً</h3>
+            </div>
+        {% endif %}
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.survey-card');
+            cards.forEach(card => {
+                const bars = card.querySelectorAll('.progress-bar');
+                let total = 0;
+                bars.forEach(bar => total += parseInt(bar.dataset.count || 0));
+                
+                bars.forEach(bar => {
+                    const count = parseInt(bar.dataset.count || 0);
+                    const percent = total > 0 ? (count / total * 100) : 0;
+                    setTimeout(() => {
+                        bar.style.width = percent + '%';
+                    }, 200);
+                });
+            });
+        });
+    </script>
+</body>
+</html>

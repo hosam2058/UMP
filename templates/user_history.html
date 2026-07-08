@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>سجل المحادثة - {{ user['name'] }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: #e5ddd5; font-family: 'Segoe UI', sans-serif; }
+        .chat-container { max-width: 800px; margin: 30px auto; background: white; border-radius: 15px; height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 5px 25px rgba(0,0,0,0.1); }
+        .chat-header { background: #075e54; color: white; padding: 15px 20px; }
+        .chat-body { flex: 1; overflow-y: auto; padding: 20px; background: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png'); }
+        .message { margin-bottom: 15px; max-width: 75%; padding: 10px 15px; border-radius: 10px; position: relative; }
+        .user-msg { background: #dcf8c6; align-self: flex-start; margin-right: auto; }
+        .bot-msg { background: #fff; align-self: flex-end; margin-left: auto; }
+        .msg-time { font-size: 0.7rem; color: #888; margin-top: 5px; text-align: left; }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+        <a href="/" class="btn btn-dark mb-3">⬅️ العودة للوحة التحكم</a>
+        
+        <div class="chat-container">
+            <div class="chat-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">👤 {{ user['name'] or 'مستخدم' }} ({{ user['tg_id'] }})</h5>
+                <span class="badge bg-light text-dark">{{ messages|length }} رسالة</span>
+            </div>
+            <div class="chat-body d-flex flex-column">
+                {% for msg in messages %}
+                <div class="message {{ 'user-msg' if msg['sender'] == 'user' else 'bot-msg' }}">
+                    <div class="fw-bold small mb-1">{{ 'أنت' if msg['sender'] == 'user' else 'الذكاء الاصطناعي' }}</div>
+                    <div>{{ msg['message_text'] }}</div>
+                    {% if msg['message_type'] != 'text' %}
+                    <div class="text-muted small mt-1">[وسائط: {{ msg['message_type'] }}]</div>
+                    {% endif %}
+                    <div class="msg-time">{{ msg['created_at'] }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
