@@ -64,6 +64,10 @@ class TradingUser(Base):
     bonus_signals = Column(Integer, default=0)
     vip_expires_at = Column(DateTime, nullable=True)
     referred_by = Column(String, default="")
+    tier = Column(String, default="trial")
+    signals_today = Column(Integer, default=0)
+    ai_analyses_today = Column(Integer, default=0)
+    usage_date = Column(String, default="")
 
 class Signal(Base):
     __tablename__ = "signals"
@@ -156,6 +160,10 @@ def _migrate_db():
             "ALTER TABLE trading_users ADD COLUMN bonus_signals INTEGER DEFAULT 0",
             "ALTER TABLE trading_users ADD COLUMN vip_expires_at TIMESTAMP",
             "ALTER TABLE trading_users ADD COLUMN referred_by TEXT DEFAULT ''",
+            "ALTER TABLE trading_users ADD COLUMN tier TEXT DEFAULT 'trial'",
+            "ALTER TABLE trading_users ADD COLUMN signals_today INTEGER DEFAULT 0",
+            "ALTER TABLE trading_users ADD COLUMN ai_analyses_today INTEGER DEFAULT 0",
+            "ALTER TABLE trading_users ADD COLUMN usage_date TEXT DEFAULT ''",
             # auto_trade_accounts columns
             "ALTER TABLE auto_trade_accounts ADD COLUMN meta_token TEXT DEFAULT ''",
             "ALTER TABLE auto_trade_accounts ADD COLUMN meta_account_id TEXT DEFAULT ''",
@@ -177,20 +185,44 @@ def _migrate_db():
 _migrate_db()
 
 def _ensure_admins_vip():
-    """تأكد أن كل ADMIN_IDS هم VIP دائماً عند بدء البوت"""
+    """تأكد أن كل ADMIN_IDS هم VIP (خطة ماسية) دائماً عند بدء البوت"""
     _ADMIN_IDS = [8865738615, 7929701751]
     db = SessionLocal()
     try:
         for aid in _ADMIN_IDS:
             u = db.query(TradingUser).filter(TradingUser.tg_id == str(aid)).first()
-            if u and not u.is_vip:
-                u.is_vip = True
-                db.commit()
+            if u:
+                changed = False
+                if not u.is_vip:
+                    u.is_vip = True
+                    changed = True
+                if (u.tier or "trial") not in ("basic", "pro", "vip"):
+                    u.tier = "vip"
+                    changed = True
+                if changed:
+                    db.commit()
     except Exception:
         pass
     finally:
         db.close()
 _ensure_admins_vip()
+
+def _backfill_legacy_vip_tiers():
+    """توافق قديم: أي حساب is_vip=True بدون تصنيف خطة يُعتبر 'ماسي' افتراضياً"""
+    db = SessionLocal()
+    try:
+        legacy = db.query(TradingUser).filter(
+            TradingUser.is_vip == True
+        ).all()
+        for u in legacy:
+            if (u.tier or "trial") not in ("basic", "pro", "vip"):
+                u.tier = "vip"
+        db.commit()
+    except Exception:
+        pass
+    finally:
+        db.close()
+_backfill_legacy_vip_tiers()
 
 SIGNAL_FILE = "data/latest_signal.json"
 STATS_FILE  = "data/website_stats.json"
@@ -892,6 +924,96 @@ def trial_banner(user) -> str:
     return ""
 
 # ============================================================
+#  SUBSCRIPTION TIERS - نظام الخطط الثلاثة (فضي/ذهبي/ماسي)
+# ============================================================
+TIER_LIMITS = {
+    "basic": {"name": "🥉 الفضية",  "signals_per_day": 3,  "ai_per_day": 0,  "auto_trading": False, "full_indicators": False},
+    "pro":   {"name": "🥈 الذهبية", "signals_per_day": 10, "ai_per_day": 3,  "auto_trading": False, "full_indicators": True},
+    "vip":   {"name": "💎 الماسية", "signals_per_day": -1, "ai_per_day": -1, "auto_trading": True,  "full_indicators": True},
+}
+
+def _today_str() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+def get_user_tier(user):
+    """يرجع 'basic'/'pro'/'vip' لو مشترك مدفوع، أو None لو تجربة مجانية"""
+    if not user or not user.is_vip:
+        return None
+    t = getattr(user, "tier", None)
+    return t if t in TIER_LIMITS else "vip"  # توافق قديم
+
+def tier_display_name(user) -> str:
+    tier = get_user_tier(user)
+    if tier is None:
+        return "🎁 تجربة مجانية"
+    return TIER_LIMITS[tier]["name"]
+
+def _reset_daily_usage_if_needed(user, db):
+    today = _today_str()
+    if (user.usage_date or "") != today:
+        user.usage_date = today
+        user.signals_today = 0
+        user.ai_analyses_today = 0
+        db.commit()
+
+def check_signal_quota(user, db):
+    """يرجع (مسموح: bool, رسالة الحد عند الرفض)"""
+    tier = get_user_tier(user)
+    if tier is None:
+        return True, ""  # نظام التجربة المجانية له سقفه الخاص أصلاً
+    _reset_daily_usage_if_needed(user, db)
+    limit = TIER_LIMITS[tier]["signals_per_day"]
+    if limit == -1:
+        return True, ""
+    used = user.signals_today or 0
+    if used >= limit:
+        return False, (
+            f"⛔ *استنفدت إشاراتك اليومية*\n"
+            f"خطتك: {TIER_LIMITS[tier]['name']} — الحد {limit} إشارات/يوم\n\n"
+            f"⬆️ قم بترقية خطتك للحصول على المزيد من الإشارات."
+        )
+    return True, ""
+
+def record_signal_use(user, db):
+    tier = get_user_tier(user)
+    if tier is None:
+        return
+    _reset_daily_usage_if_needed(user, db)
+    user.signals_today = (user.signals_today or 0) + 1
+    db.commit()
+
+def check_ai_quota(user, db):
+    tier = get_user_tier(user)
+    if tier is None:
+        return False, "💎 تحليل الشارت بالذكاء الاصطناعي متاح فقط للمشتركين."
+    _reset_daily_usage_if_needed(user, db)
+    limit = TIER_LIMITS[tier]["ai_per_day"]
+    if limit == 0:
+        return False, (
+            f"⬆️ *تحليل الشارت AI غير متاح في خطتك الحالية*\n"
+            f"خطتك: {TIER_LIMITS[tier]['name']}\n\n"
+            f"قم بالترقية للخطة الذهبية 🥈 أو الماسية 💎 لاستخدام هذه الميزة."
+        )
+    if limit == -1:
+        return True, ""
+    used = user.ai_analyses_today or 0
+    if used >= limit:
+        return False, (
+            f"⛔ *استنفدت تحليلات AI اليومية*\n"
+            f"خطتك: {TIER_LIMITS[tier]['name']} — الحد {limit} تحليلات/يوم\n\n"
+            f"💎 ترقّ للخطة الماسية لتحليل غير محدود."
+        )
+    return True, ""
+
+def record_ai_use(user, db):
+    tier = get_user_tier(user)
+    if tier is None:
+        return
+    _reset_daily_usage_if_needed(user, db)
+    user.ai_analyses_today = (user.ai_analyses_today or 0) + 1
+    db.commit()
+
+# ============================================================
 #  SIGNAL ENGINE
 # ============================================================
 class SignalEngine:
@@ -1351,6 +1473,19 @@ def _at_kb(acc):
 async def handle_auto_trading_menu(query, user_id):
     db = SessionLocal()
     try:
+        user = db.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
+        tier = get_user_tier(user)
+        if not tier or not TIER_LIMITS[tier]["auto_trading"]:
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💎 ترقية للماسية", callback_data="plan_vip")],
+                [InlineKeyboardButton("🔙 العودة", callback_data="start")]
+            ])
+            await query.edit_message_text(
+                "🔒 *التداول الآلي حصري لمشتركي الخطة الماسية 💎*\n\n"
+                "قم بالترقية للاستفادة من تنفيذ الصفقات تلقائياً 24/7.",
+                reply_markup=markup, parse_mode="Markdown"
+            )
+            return
         acc = _get_at_acc(db, user_id)
         await query.edit_message_text(_at_text(acc), reply_markup=_at_kb(acc), parse_mode="Markdown")
     finally:
@@ -2463,9 +2598,23 @@ async def handle_get_signal(query, user_id):
     db = SessionLocal()
     user = db.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
     is_vip = is_trial_active(user)
+
+    if is_vip and user:
+        _allowed, _quota_msg = check_signal_quota(user, db)
+        if not _allowed:
+            db.close()
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬆️ ترقية الخطة", callback_data="plans")],
+                [InlineKeyboardButton("🔙 العودة", callback_data="start")]
+            ])
+            await query.edit_message_text(_quota_msg, reply_markup=markup, parse_mode="Markdown")
+            return
+
     if user:
         user.signals_requested = (user.signals_requested or 0) + 1
         user.loyalty_points = (user.loyalty_points or 0) + 5
+        if is_vip:
+            record_signal_use(user, db)
         db.commit()
     db.close()
 
@@ -2605,6 +2754,18 @@ async def handle_chart_analysis(query, user_id):
     db = SessionLocal()
     user = db.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
     is_vip = is_trial_active(user)
+
+    if is_vip and user:
+        _allowed, _quota_msg = check_ai_quota(user, db)
+        if not _allowed:
+            db.close()
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬆️ ترقية الخطة", callback_data="plans")],
+                [InlineKeyboardButton("🔙 العودة", callback_data="start")]
+            ])
+            await query.edit_message_text(_quota_msg, reply_markup=markup, parse_mode="Markdown")
+            return
+        record_ai_use(user, db)
     db.close()
 
     if not is_vip:
@@ -3353,6 +3514,45 @@ async def admin_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
     await update.message.reply_text(f"✅ تم إرسال الفيديو لـ {success} مستخدم.")
+
+async def admin_set_tier(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر الأدمن لتحديد خطة المستخدم: تجربة/فضية/ذهبية/ماسية"""
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    if len(context.args) < 2 or context.args[1].lower() not in ("trial", "basic", "pro", "vip"):
+        await update.message.reply_text(
+            "❌ استخدم: /set_tier [user_id] [trial|basic|pro|vip]\n\n"
+            "trial = تجربة مجانية\nbasic = 🥉 الفضية\npro = 🥈 الذهبية\nvip = 💎 الماسية"
+        )
+        return
+    target_id, tier = context.args[0], context.args[1].lower()
+    db = SessionLocal()
+    u = db.query(TradingUser).filter(TradingUser.tg_id == str(target_id)).first()
+    if not u:
+        await update.message.reply_text("❌ المستخدم غير موجود في قاعدة البيانات. اطلب منه إرسال /start أولاً.")
+        db.close()
+        return
+    if tier == "trial":
+        u.is_vip = False
+        u.tier = "trial"
+        label = "🎁 تجربة مجانية"
+    else:
+        u.is_vip = True
+        u.tier = tier
+        label = TIER_LIMITS[tier]["name"]
+    u.usage_date = ""
+    db.commit()
+    db.close()
+    await update.message.reply_text(f"✅ تم تعيين المستخدم {target_id} إلى خطة: {label}")
+    try:
+        await context.bot.send_message(
+            chat_id=int(target_id),
+            text=f"🎉 *تم تحديث اشتراكك!*\n\nخطتك الحالية: {label}\n\nأرسل /start لرؤية مميزاتك الجديدة.",
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
+
 
 async def admin_set_vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -4145,6 +4345,7 @@ def main():
     app.add_handler(CommandHandler("users", admin_users_list))
     app.add_handler(CommandHandler("userdata", admin_userdata))
     app.add_handler(CommandHandler("set_vip", admin_set_vip))
+    app.add_handler(CommandHandler("set_tier", admin_set_tier))
 
     # أوامر الأدمن - البث
     app.add_handler(CommandHandler("broadcast", admin_broadcast))
