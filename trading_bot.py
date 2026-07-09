@@ -11,6 +11,7 @@ import math
 import random
 import requests
 import threading
+import time
 try:
     from websocket._app import WebSocketApp as _WebSocketApp
     _WS_AVAILABLE = True
@@ -1989,12 +1990,45 @@ async def handle_session_timer(query):
 
 
 # ============================================================
-#  GOLD NEWS (RSS - free)
+#  GOLD NEWS — Finnhub API (مصدر رسمي بمفتاح) أولاً، RSS كبديل، مع كاش
 # ============================================================
 import urllib.request as _ur
 import re as _re
 
-def fetch_gold_news():
+_NEWS_CACHE = {"ts": 0.0, "items": [], "source": ""}
+_NEWS_CACHE_TTL = 1800  # 30 دقيقة — يقلل عدد الطلبات ويحمي من حدود Finnhub المجانية
+
+_NEWS_KEYWORDS = ("gold", "xau", "precious metal", "bullion", "fed", "interest rate",
+                  "inflation", "dollar", "fomc", "safe haven")
+
+
+def _fetch_gold_news_finnhub():
+    """المصدر الأساسي: Finnhub News API (نفس مفاتيح Finnhub المستخدمة لـ WebSocket السعر).
+    وثائق: https://finnhub.io/docs/api/market-news"""
+    for key in FINNHUB_KEYS:
+        try:
+            url = "https://finnhub.io/api/v1/news?category=general&token=" + key
+            req = _ur.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with _ur.urlopen(req, timeout=6) as resp:
+                raw = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            results = []
+            for item in raw:
+                headline = (item.get("headline") or "").strip()
+                if not headline:
+                    continue
+                low = headline.lower()
+                if any(kw in low for kw in _NEWS_KEYWORDS):
+                    results.append({"title": headline, "source": item.get("source") or "Finnhub", "url": item.get("url") or ""})
+            if results:
+                return results[:5]
+        except Exception as e:
+            logger.warning("Finnhub news key ..." + key[-6:] + " فشل: " + str(e))
+            continue
+    return []
+
+
+def _fetch_gold_news_rss():
+    """مصدر احتياطي إذا فشلت Finnhub News API."""
     try:
         feeds = [
             "https://feeds.finance.yahoo.com/rss/2.0/headline?s=GC%3DF&region=US&lang=en-US",
@@ -2009,8 +2043,8 @@ def fetch_gold_news():
                 results = []
                 for t1, t2 in titles:
                     title = (t1 or t2).strip()
-                    if title and "gold" in title.lower() or "xau" in title.lower() or "metal" in title.lower():
-                        results.append(title)
+                    if title and ("gold" in title.lower() or "xau" in title.lower() or "metal" in title.lower()):
+                        results.append({"title": title, "source": "Yahoo/Kitco RSS", "url": ""})
                 if results:
                     return results[:5]
             except Exception:
@@ -2019,17 +2053,39 @@ def fetch_gold_news():
     except Exception:
         return []
 
+
+def fetch_gold_news():
+    """يجلب الأخبار مع كاش 30 دقيقة: Finnhub API (رسمي، بمفتاح) أولاً، ثم RSS كبديل.
+    ملاحظة: هذه الدالة تنفّذ طلبات HTTP متزامنة — يجب استدعاؤها فقط عبر
+    asyncio.to_thread من داخل أي async def (كما في handle_gold_news) لتجنّب تجميد event loop."""
+    now = time.time()
+    if _NEWS_CACHE["items"] and (now - _NEWS_CACHE["ts"]) < _NEWS_CACHE_TTL:
+        return _NEWS_CACHE["items"], _NEWS_CACHE["source"]
+
+    news = _fetch_gold_news_finnhub()
+    source = "Finnhub News API"
+    if not news:
+        news = _fetch_gold_news_rss()
+        source = "Yahoo Finance / Kitco RSS"
+
+    if news:
+        _NEWS_CACHE["ts"] = now
+        _NEWS_CACHE["items"] = news
+        _NEWS_CACHE["source"] = source
+    return news, source
+
+
 async def handle_gold_news(query):
     await query.edit_message_text("📰 جاري جلب آخر أخبار " + PAIR_CFG['display_name'] + "...", parse_mode="Markdown")
-    news = fetch_gold_news()
+    news, source = await asyncio.to_thread(fetch_gold_news)
     if news:
         text = "📰 *آخر أخبار " + PAIR_CFG['display_name'] + "*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
         for i, n in enumerate(news, 1):
-            text += str(i) + ". " + n[:100] + "\n\n"
-        text += "━━━━━━━━━━━━━━━━━━━━━━━━\n🔄 يتجدد كل ساعة | المصدر: Yahoo Finance / Kitco"
+            text += str(i) + ". " + n["title"][:120] + "\n\n"
+        text += "━━━━━━━━━━━━━━━━━━━━━━━━\n🔄 يتجدد كل 30 دقيقة | المصدر: " + source
     else:
         text = ("📰 *آخر أخبار " + PAIR_CFG['display_name'] + "*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "⚠️ تعذّر جلب الأخبار حالياً\n\n"
+                "⚠️ تعذّر جلب الأخبار حالياً من أي مصدر\n\n"
                 "📌 *أبرز المستجدات اليوم:*\n"
                 "• " + PAIR_CFG['display_name'] + " يتداول قرب مستويات مهمة\n"
                 "• ترقّب بيانات التضخم الأمريكية\n"
@@ -2037,7 +2093,8 @@ async def handle_gold_news(query):
     await query.edit_message_text(
         text,
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("⚡ إشارة الآن", callback_data="get_signal")],
+            [InlineKeyboardButton("🔄 تحديث الأخبار", callback_data="gold_news"),
+             InlineKeyboardButton("⚡ إشارة الآن", callback_data="get_signal")],
             [InlineKeyboardButton("🔙 القائمة", callback_data="start")],
         ]),
         parse_mode="Markdown"
@@ -2833,11 +2890,12 @@ async def handle_chart_analysis(query, user_id):
     )
 
 
-async def handle_strategy_analysis(query, user_id):
-    """تحليل استراتيجية المستخدم بالذكاء الاصطناعي"""
-    db = SessionLocal()
-    user = db.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
-    db.close()
+async def handle_strategy_analysis(query, user_id, context: ContextTypes.DEFAULT_TYPE):
+    """تحليل استراتيجية المستخدم بالذكاء الاصطناعي.
+    يفعّل علم انتظار (awaiting_strategy) في user_data — أي رسالة نصية عادية (بدون /)
+    يرسلها المستخدم بعد هذه الشاشة تُعتبر تلقائياً وصف استراتيجيته وتُحلَّل مباشرة
+    (يُعالَجها handle_free_text_message)."""
+    context.user_data["awaiting_strategy"] = True
 
     msg = """📊 *تحليل استراتيجيتك التداولية*
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2850,35 +2908,20 @@ async def handle_strategy_analysis(query, user_id):
 💡 *توصيات التطوير* — كيف تطور استراتيجيتك
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
-📝 *اكتب /strategy متبوعاً بوصف استراتيجيتك*
+📝 *اكتب الآن وصف استراتيجيتك في رسالة عادية* (بدون أي علامة / في البداية) وسيُحلّلها النظام تلقائياً.
 
 *مثال:*
-`/strategy أستخدم RSI للدخول عند 30، وأخرج عند 70، مع مستوى وقف خسارة 50 نقطة`"""
+`أستخدم RSI للدخول عند 30، وأخرج عند 70، مع مستوى وقف خسارة 50 نقطة`"""
 
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📝 أرسل /strategy [وصف استراتيجيتك]", callback_data="strategy_help")],
         [InlineKeyboardButton("🔙 العودة", callback_data="start")]
     ])
     await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
 
 
-async def cmd_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /strategy — تحليل استراتيجية المستخدم"""
-    if not context.args:
-        await update.message.reply_text(
-            "📊 *تحليل الاستراتيجية*\n\n"
-            "استخدم: `/strategy [وصف استراتيجيتك]`\n\n"
-            "*مثال:*\n"
-            "`/strategy أستخدم RSI عند 30/70 مع Bollinger Bands للتأكيد، وأدخل عند كسر المستوى مع حجم تداول مرتفع`",
-            parse_mode="Markdown"
-        )
-        return
-
-    strategy_text = " ".join(context.args)
-    if len(strategy_text) < 20:
-        await update.message.reply_text("❌ يرجى كتابة وصف أكثر تفصيلاً لاستراتيجيتك (على الأقل 20 حرف).")
-        return
-
+async def _run_strategy_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE, strategy_text: str):
+    """المنطق المشترك لتحليل الاستراتيجية بالذكاء الاصطناعي — يُستخدم من /strategy
+    ومن الرسالة النصية العادية بعد الضغط على زر 'تحليل استراتيجيتي'."""
     thinking_msg = await update.message.reply_text(
         "🔄 *جاري تحليل استراتيجيتك بالذكاء الاصطناعي...*\n⏳ انتظر لحظة...",
         parse_mode="Markdown"
@@ -2925,6 +2968,45 @@ async def cmd_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Strategy analysis error: {e}")
         await thinking_msg.edit_text("❌ حدث خطأ أثناء التحليل. حاول لاحقاً.")
+
+
+async def cmd_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر /strategy — تحليل استراتيجية المستخدم (لا يزال يعمل لمن يفضّل الأمر مباشرة)"""
+    if not context.args:
+        await update.message.reply_text(
+            "📊 *تحليل الاستراتيجية*\n\n"
+            "استخدم: `/strategy [وصف استراتيجيتك]`\n"
+            "أو اضغط زر 📊 تحليل استراتيجيتي من القائمة الرئيسية واكتب استراتيجيتك مباشرة كرسالة عادية.\n\n"
+            "*مثال:*\n"
+            "`/strategy أستخدم RSI عند 30/70 مع Bollinger Bands للتأكيد، وأدخل عند كسر المستوى مع حجم تداول مرتفع`",
+            parse_mode="Markdown"
+        )
+        return
+
+    strategy_text = " ".join(context.args)
+    if len(strategy_text) < 20:
+        await update.message.reply_text("❌ يرجى كتابة وصف أكثر تفصيلاً لاستراتيجيتك (على الأقل 20 حرف).")
+        return
+
+    await _run_strategy_analysis(update, context, strategy_text)
+
+
+async def handle_free_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """يعالج أي رسالة نصية عادية (بدون أمر /) ليس لها معالج آخر.
+    الاستخدام الحالي الوحيد: استقبال وصف استراتيجية المستخدم بعد الضغط على
+    زر 'تحليل استراتيجيتي' (بدون الحاجة لكتابة /strategy)."""
+    if not context.user_data.get("awaiting_strategy"):
+        return  # لا يوجد انتظار نشط لهذا المستخدم — تجاهل الرسالة كما كان الحال دائماً
+
+    strategy_text = (update.message.text or "").strip()
+    if len(strategy_text) < 20:
+        await update.message.reply_text(
+            "❌ يرجى كتابة وصف أكثر تفصيلاً لاستراتيجيتك (على الأقل 20 حرف)، أو اضغط 🔙 العودة للإلغاء."
+        )
+        return  # يبقى awaiting_strategy=True ليتمكن من إعادة المحاولة بنفس الرسالة التالية
+
+    context.user_data["awaiting_strategy"] = False
+    await _run_strategy_analysis(update, context, strategy_text)
 
 
 async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3345,7 +3427,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🚀 *كن شريكاً في النجاح!*"""
             await query.edit_message_text(msg, reply_markup=back_menu(), parse_mode="Markdown")
         elif data == "strategy_analysis":
-            await handle_strategy_analysis(query, user_id)
+            await handle_strategy_analysis(query, user_id, context)
         elif data == "about":
             await query.edit_message_text(
                 f"🏆 *بوت التداول الذكي — {PAIR_CFG['symbol']} Pro*\n"
@@ -3378,7 +3460,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         elif data == "strategy_analysis":
-            await handle_strategy_analysis(query, user_id)
+            await handle_strategy_analysis(query, user_id, context)
         elif data == "about":
             db = SessionLocal()
             user_count = db.query(TradingUser).count()
@@ -4424,6 +4506,7 @@ def main():
 
     # معالجة الصور (تحليل الشارت)
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text_message))
 
     logger.info("🚀 بوت التداول الذكي v7.0 (مع مراقبة فتح السوق) يعمل الآن!")
     app.run_polling(drop_pending_updates=True)
