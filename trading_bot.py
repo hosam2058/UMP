@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = "sqlite:///" + PAIR_CFG['db_file']
 os.makedirs("data", exist_ok=True)
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine)
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 Base = declarative_base()
 
 class TradingUser(Base):
@@ -1342,14 +1342,20 @@ def main_menu():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def vip_menu():
-    """قائمة لأعضاء VIP — ميزات كاملة"""
+def vip_menu(show_plans: bool = False):
+    """قائمة كاملة بكل الميزات.
+    show_plans=True يضيف زر 'خطط الاشتراك' — يُستخدم فقط للمستخدمين غير المشتركين
+    (تجربة/منتهية)، ويُخفى عن مستخدمي VIP (المشتركين فعلاً) لأنهم لا يحتاجونه."""
     keyboard = [
         [InlineKeyboardButton("⚡ إشارة تداول الآن", callback_data="get_signal"),
          InlineKeyboardButton(f"💰 سعر {PAIR_CFG['display_name']} المباشر", callback_data="live_gold")],
         [InlineKeyboardButton("📊 تحليل استراتيجيتي", callback_data="strategy_analysis"),
          InlineKeyboardButton("🧠 تحليل شارت بالذكاء الاصطناعي", callback_data="analyze_chart")],
         [InlineKeyboardButton("🤖 تداول آلي Auto Trading 🤖", callback_data="auto_trading_menu")],
+    ]
+    if show_plans:
+        keyboard.append([InlineKeyboardButton("🎯 خطط الاشتراك والأسعار", callback_data="plans")])
+    keyboard += [
         [InlineKeyboardButton("🔔 تنبيه سعر", callback_data="set_alert"),
          InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer")],
         [InlineKeyboardButton(f"📰 أخبار {PAIR_CFG['display_name']}", callback_data="gold_news"),
@@ -1362,12 +1368,14 @@ def vip_menu():
     return InlineKeyboardMarkup(keyboard)
 
 def trial_menu():
-    """قائمة لمستخدمي التجربة المجانية — نفس ميزات VIP كاملة (المعاينة/الحدود تُطبّق عند الاستخدام الفعلي)"""
-    return vip_menu()
+    """قائمة لمستخدمي التجربة المجانية — نفس ميزات VIP كاملة + زر خطط الاشتراك
+    (المعاينة/الحدود تُطبّق عند الاستخدام الفعلي)"""
+    return vip_menu(show_plans=True)
 
 def expired_menu():
-    """قائمة لمنتهي التجربة — نفس ميزات VIP كاملة (المعاينة/الحدود تُطبّق عند الاستخدام الفعلي)"""
-    return vip_menu()
+    """قائمة لمنتهي التجربة — نفس ميزات VIP كاملة + زر خطط الاشتراك
+    (المعاينة/الحدود تُطبّق عند الاستخدام الفعلي)"""
+    return vip_menu(show_plans=True)
 
 
 def back_menu():
