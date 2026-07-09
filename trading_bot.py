@@ -272,6 +272,19 @@ ADMIN_IDS = [8865738615, 7929701751]
 GOLD_API_KEY = os.getenv("GOLD_API_KEY", "")
 WEBSITE_URL = f"https://{os.getenv('REPLIT_DEV_DOMAIN', 'trading-bot.replit.app')}"
 
+def get_website_url():
+    """يرجع رابط الموقع الحالي — يقرأه من data/website_url.txt (يكتبه start_tunnel.sh
+    برابط Cloudflare Tunnel الجديد عند كل تشغيل)، أو يرجع WEBSITE_URL كرابط احتياطي
+    إذا لم يوجد الملف أو كان فارغاً/غير صالح."""
+    try:
+        with open("data/website_url.txt", "r") as f:
+            url = f.read().strip()
+            if url.startswith("http"):
+                return url
+    except Exception:
+        pass
+    return WEBSITE_URL
+
 # ============================================================
 #  MARKET HOURS CHECKER - NEW
 # ============================================================
@@ -1336,7 +1349,7 @@ def main_menu():
         [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
          InlineKeyboardButton("🎓 مكتبة الكورسات", callback_data="courses_main")],
         [InlineKeyboardButton("🏆 نتائج التوصيات", callback_data="results_menu")],
-        [InlineKeyboardButton("🌐 زيارة الموقع", url=WEBSITE_URL),
+        [InlineKeyboardButton("🌐 زيارة الموقع", url=get_website_url()),
          InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
         [InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
     ]
@@ -1362,7 +1375,7 @@ def vip_menu(show_plans: bool = False):
          InlineKeyboardButton("🏆 نتائج التوصيات", callback_data="results_menu")],
         [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
          InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
-        [InlineKeyboardButton("🌐 زيارة الموقع", url=WEBSITE_URL),
+        [InlineKeyboardButton("🌐 زيارة الموقع", url=get_website_url()),
          InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
     ]
     return InlineKeyboardMarkup(keyboard)
