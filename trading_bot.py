@@ -1362,31 +1362,12 @@ def vip_menu():
     return InlineKeyboardMarkup(keyboard)
 
 def trial_menu():
-    """قائمة لمستخدمي التجربة المجانية"""
-    keyboard = [
-        [InlineKeyboardButton("⚡ إشارة تداول (تجربة)", callback_data="get_signal"),
-         InlineKeyboardButton(f"💰 سعر {PAIR_CFG['display_name']} المباشر", callback_data="live_gold")],
-        [InlineKeyboardButton("💎 اشترك VIP — إشارات كاملة", callback_data="plans")],
-        [InlineKeyboardButton("🔔 تنبيه سعر", callback_data="set_alert"),
-         InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer")],
-        [InlineKeyboardButton(f"📰 أخبار {PAIR_CFG['display_name']}", callback_data="gold_news"),
-         InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods")],
-        [InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK),
-         InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    """قائمة لمستخدمي التجربة المجانية — نفس ميزات VIP كاملة (المعاينة/الحدود تُطبّق عند الاستخدام الفعلي)"""
+    return vip_menu()
 
 def expired_menu():
-    """قائمة لمنتهي التجربة"""
-    keyboard = [
-        [InlineKeyboardButton("💎 اشترك VIP الآن 🔥", callback_data="plans")],
-        [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
-         InlineKeyboardButton(f"💰 سعر {PAIR_CFG['display_name']} المباشر", callback_data="live_gold")],
-        [InlineKeyboardButton("👤 حسابي", callback_data="my_account"),
-         InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
-        [InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    """قائمة لمنتهي التجربة — نفس ميزات VIP كاملة (المعاينة/الحدود تُطبّق عند الاستخدام الفعلي)"""
+    return vip_menu()
 
 
 def back_menu():
@@ -1733,7 +1714,7 @@ async def alert_recv_price(update, context):
         return ALERT_PRICE
     uid = str(update.effective_user.id)
     if not finnhub_ws.is_data_fresh():
-        gold_manager.update()
+        await asyncio.to_thread(gold_manager.update)
     current = gold_manager.current_price or 0
     direction = "above" if price > current else "below"
     db = SessionLocal()
@@ -1778,7 +1759,7 @@ async def check_gold_alerts(context):
         if finnhub_ws.is_data_fresh():
             current = gold_manager.current_price
         else:
-            gold_manager.update()
+            await asyncio.to_thread(gold_manager.update)
             current = gold_manager.current_price
         if not current or current <= 0:
             return
@@ -1817,7 +1798,7 @@ async def check_gold_alerts(context):
 async def daily_morning_summary(context):
     """ملخص يومي للـ VIP كل صباح"""
     try:
-        gold_manager.update()
+        await asyncio.to_thread(gold_manager.update)
         price = gold_manager.price or 0
         session = gold_manager.session or "London"
         data = gold_manager.get_market_data() or {}
@@ -2097,7 +2078,7 @@ async def cmd_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============================================================
 async def evening_market_summary(context):
     try:
-        gold_manager.update()
+        await asyncio.to_thread(gold_manager.update)
         price = gold_manager.price or 0
         data = gold_manager.get_market_data() or {}
         prices = data.get("prices", [])
@@ -2193,7 +2174,7 @@ async def handle_admin_dashboard(query, user_id):
     total_pts = db.query(TradingUser).all()
     pts_sum = sum((u.loyalty_points or 0) for u in total_pts)
     db.close()
-    gold_manager.update()
+    await asyncio.to_thread(gold_manager.update)
     price = gold_manager.price or 0
     session = gold_manager.session or "—"
     await query.edit_message_text(
@@ -2272,7 +2253,7 @@ async def check_trade_signals(context):
               src   = "WebSocket"
           else:
               # WS غير نشط أو بياناته قديمة — استدعاء HTTP كـ fallback فقط
-              gold_manager.update()
+              await asyncio.to_thread(gold_manager.update)
               price = gold_manager.current_price
               src   = "HTTP/Yahoo"
           if not price or price <= 0:
@@ -2504,7 +2485,7 @@ async def handle_live_gold(query):
         (datetime.utcnow() - gold_manager.last_update).total_seconds() < 600
     )
     if not price_fresh:
-        gold_manager.update()
+        await asyncio.to_thread(gold_manager.update)
     price = gold_manager.current_price
     session = gold_manager._get_trading_session()
 
@@ -2647,7 +2628,7 @@ async def handle_get_signal(query, user_id):
 
     # WS أولاً — لا نلوث السعر بـ Yahoo Finance إلا إذا WS قديم
     if not finnhub_ws.is_data_fresh():
-        gold_manager.update()
+        await asyncio.to_thread(gold_manager.update)
 
     if not is_vip:
         demo = _generate_demo_signal()
@@ -3613,7 +3594,7 @@ async def admin_signal_manual(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     if not finnhub_ws.is_data_fresh():
-        gold_manager.update()
+        await asyncio.to_thread(gold_manager.update)
     data = gold_manager.get_analysis_data()
     if not data:
         await update.message.reply_text("⚠️ لا تتوفر بيانات كافية بعد. حاول لاحقاً.")
@@ -3816,7 +3797,7 @@ async def admin_price_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
     if not finnhub_ws.is_data_fresh():
-        gold_manager.update()
+        await asyncio.to_thread(gold_manager.update)
     price    = gold_manager.current_price
     prices   = list(gold_manager.price_history)
     rsi_val  = TechnicalAnalysis.rsi(prices) if len(prices) >= 5 else None
@@ -4052,7 +4033,7 @@ async def price_update_job(context: ContextTypes.DEFAULT_TYPE):
         if not data_ok:
             # لا بيانات حديثة — HTTP fallback (Yahoo Finance اولاً)
             logger.warning("بيانات قديمة — HTTP fallback")
-            gold_manager.update()
+            await asyncio.to_thread(gold_manager.update)
 
         p = gold_manager.current_price or 0
         n = len(gold_manager.price_history)
