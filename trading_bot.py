@@ -402,18 +402,18 @@ class GeminiManager:
         self.current_index = 0
         self.exhausted = set()
         # نماذج النص فقط
+        # ⚠️ gemini-2.0-* و gemini-1.5-* متوقفة رسمياً من جوجل (shut down 1 يونيو 2026) —
+        # لا تُعِد إضافتها؛ استخدم فقط: gemini-2.5-flash-lite, gemini-2.5-flash, gemini-3.1-flash-lite
         self.text_models = [
-            "gemini-2.0-flash-lite",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-flash-8b-latest",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite",
         ]
-        # نماذج الرؤية (صور الشارت) - تدعم الصور
+        # نماذج الرؤية (صور الشارت) - تدعم الصور — نفس القائمة، الثلاثة تدعم الإدخال متعدد الوسائط
         self.vision_models = [
-            "gemini-2.0-flash-lite",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-flash-8b-latest",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite",
         ]
         logger.info(f"✅ GeminiManager: {len(self.valid_keys)} مفتاح نشط")
 
