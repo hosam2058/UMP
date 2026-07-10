@@ -941,10 +941,11 @@ def trial_banner(user) -> str:
 #  SUBSCRIPTION TIERS - نظام الخطط الثلاثة (فضي/ذهبي/ماسي)
 # ============================================================
 TIER_LIMITS = {
-    "basic": {"name": "🥉 الفضية",  "price": 9.99,  "signals_per_day": 15, "ai_per_day": 0,  "auto_trading": False, "full_indicators": False, "priority_support": False, "instant_alerts": False},
-    "pro":   {"name": "🥈 الذهبية", "price": 17.99, "signals_per_day": 20, "ai_per_day": 3,  "auto_trading": False, "full_indicators": True,  "priority_support": True,  "instant_alerts": False},
-    "vip":   {"name": "💎 الماسية", "price": 34.99, "signals_per_day": -1, "ai_per_day": -1, "auto_trading": True,  "full_indicators": True,  "priority_support": True,  "instant_alerts": True},
+    "basic": {"name": "🥉 الفضية",  "price": 9.99,  "signals_per_day": 15, "ai_per_day": 0,  "auto_trading": False, "full_indicators": False, "priority_support": False, "instant_alerts": False, "alerts_max": 3},
+    "pro":   {"name": "🥈 الذهبية", "price": 17.99, "signals_per_day": 20, "ai_per_day": 3,  "auto_trading": False, "full_indicators": True,  "priority_support": True,  "instant_alerts": False, "alerts_max": 10},
+    "vip":   {"name": "💎 الماسية", "price": 34.99, "signals_per_day": -1, "ai_per_day": -1, "auto_trading": True,  "full_indicators": True,  "priority_support": True,  "instant_alerts": True, "alerts_max": -1},
 }
+TRIAL_ALERTS_MAX = 1  # عدد تنبيهات السعر المسموح بها لمستخدم التجربة المجانية (غير مشترك)
 
 def _today_str() -> str:
     return datetime.utcnow().strftime("%Y-%m-%d")
@@ -961,6 +962,13 @@ def tier_display_name(user) -> str:
     if tier is None:
         return "🎁 تجربة مجانية"
     return TIER_LIMITS[tier]["name"]
+
+def get_alert_limit(user) -> int:
+    """عدد تنبيهات السعر النشطة المسموح بها حسب خطة المستخدم. -1 = بلا حدود."""
+    tier = get_user_tier(user)
+    if tier is None:
+        return TRIAL_ALERTS_MAX
+    return TIER_LIMITS[tier]["alerts_max"]
 
 def _reset_daily_usage_if_needed(user, db):
     today = _today_str()
@@ -1706,16 +1714,40 @@ ALERT_PRICE = 210
 async def alert_entry(update, context):
     query = update.callback_query
     await query.answer()
-    db = SessionLocal()
     uid = str(query.from_user.id)
+    db = SessionLocal()
+    user = db.query(TradingUser).filter(TradingUser.tg_id == uid).first()
     alerts = db.query(GoldAlert).filter(GoldAlert.tg_id == uid, GoldAlert.is_active == True).all()
     db.close()
+
+    limit = get_alert_limit(user)
+    used = len(alerts)
+    limit_text = "بلا حدود ♾️" if limit == -1 else (str(used) + "/" + str(limit))
+
     alerts_text = ""
     if alerts:
-        alerts_text = "\n\n📋 *تنبيهاتك الحالية:*\n"
+        alerts_text = "\n\n📋 *تنبيهاتك الحالية (" + limit_text + "):*\n"
         for a in alerts:
             d = "↑ فوق" if a.direction == "above" else "↓ تحت"
             alerts_text += "• " + d + " $" + str(a.target_price) + "\n"
+    else:
+        alerts_text = "\n\n📊 خطتك: " + tier_display_name(user) + " — الحد " + limit_text + "\n"
+
+    if limit != -1 and used >= limit:
+        await query.edit_message_text(
+            "⛔ *استنفدت حد تنبيهات السعر*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "خطتك (" + tier_display_name(user) + ") تسمح بـ " + str(limit) + " تنبيه نشط كحد أقصى.\n"
+            + alerts_text +
+            "\n⬆️ قم بترقية خطتك لزيادة عدد التنبيهات، أو ألغِ تنبيهاً حالياً عبر /alerts_clear.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬆️ ترقية الخطة", callback_data="plans")],
+                [InlineKeyboardButton("🔙 العودة", callback_data="start")],
+            ]),
+            parse_mode="Markdown"
+        )
+        return _CH2.END
+
     await query.edit_message_text(
         "🔔 *تنبيهات سعر " + PAIR_CFG['display_name'] + "*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1735,11 +1767,23 @@ async def alert_recv_price(update, context):
         await update.message.reply_text("❌ سعر غير صحيح. أدخل رقماً صحيحاً لـ " + PAIR_CFG['display_name'])
         return ALERT_PRICE
     uid = str(update.effective_user.id)
+
+    db = SessionLocal()
+    user = db.query(TradingUser).filter(TradingUser.tg_id == uid).first()
+    limit = get_alert_limit(user)
+    active_count = db.query(GoldAlert).filter(GoldAlert.tg_id == uid, GoldAlert.is_active == True).count()
+    if limit != -1 and active_count >= limit:
+        db.close()
+        await update.message.reply_text(
+            "⛔ استنفدت حد تنبيهات السعر (" + str(limit) + ") في خطتك (" + tier_display_name(user) + ").\n"
+            "قم بترقية خطتك أو ألغِ تنبيهاً حالياً عبر /alerts_clear."
+        )
+        return _CH2.END
+
     if not finnhub_ws.is_data_fresh():
         await asyncio.to_thread(gold_manager.update)
     current = gold_manager.current_price or 0
     direction = "above" if price > current else "below"
-    db = SessionLocal()
     db.add(GoldAlert(tg_id=uid, target_price=price, direction=direction))
     db.commit()
     db.close()
@@ -1796,6 +1840,15 @@ async def check_gold_alerts(context):
                 a.is_active = False
         db.commit()
         db.close()
+        # لقطة فنية سريعة تُرفَق مع كل إشعار (بدون أي طلب HTTP إضافي — من البيانات المخزّنة مسبقاً)
+        prices = list(gold_manager.price_history)
+        rsi = TechnicalAnalysis.rsi(prices) if len(prices) >= 5 else None
+        rsi_line = ""
+        if rsi:
+            rsi_state = "🔴 تشبع شرائي" if rsi > 65 else "🟢 تشبع بيعي" if rsi < 35 else "⚪ محايد"
+            rsi_line = "📐 RSI: `" + str(rsi) + "` " + rsi_state + "\n"
+        session_line = "🌍 الجلسة: " + gold_manager._get_trading_session() + "\n"
+
         for a in triggered:
             try:
                 d_text = "ارتفع فوق" if a.direction == "above" else "انخفض تحت"
@@ -1806,9 +1859,14 @@ async def check_gold_alerts(context):
                         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
                         "⚡ وصل السعر للمستوى المحدد!\n\n"
                         "🎯 هدفك: $" + str(a.target_price) + "\n"
-                        "💰 السعر الحالي: $" + str(round(current, 2)) + "\n\n"
-                        "📌 السعر " + d_text + " $" + str(a.target_price)
+                        "💰 السعر الحالي: $" + str(round(current, 2)) + "\n"
+                        + rsi_line + session_line +
+                        "\n📌 السعر " + d_text + " $" + str(a.target_price)
                     ),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⚡ اطلب إشارة الآن", callback_data="get_signal")],
+                        [InlineKeyboardButton("🔔 تنبيه جديد", callback_data="set_alert")],
+                    ]),
                     parse_mode="Markdown"
                 )
             except Exception:
@@ -4408,8 +4466,8 @@ async def post_init(application: Application):
     )
     application.job_queue.run_repeating(
         check_gold_alerts,
-        interval=60,
-        first=30,
+        interval=15,
+        first=15,
         name="gold_alerts_checker"
     )
     application.job_queue.run_daily(
