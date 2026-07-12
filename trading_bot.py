@@ -622,6 +622,82 @@ class TechnicalAnalysis:
         return round(support, 2), round(resistance, 2)
 
 # ============================================================
+#  CANDLE AGGREGATOR — يبني شموع OHLC حقيقية من تدفق التكات
+# ============================================================
+class CandleAggregator:
+    """
+    يجمّع التكات ضمن نافذة زمنية ثابتة وينتج شموع OHLC حقيقية.
+    الشمعة تُغلق فقط عند انتهاء الفترة الزمنية، لا عند كل تكة.
+    interval_seconds=60 → شموع دقيقة واحدة (قابل للتغيير).
+    """
+
+    def __init__(self, interval_seconds: int = 60, maxlen: int = 200):
+        self.interval   = interval_seconds
+        self._open: float | None  = None
+        self._high: float | None  = None
+        self._low:  float | None  = None
+        self._close: float | None = None
+        self._bar_epoch: int | None = None       # رقم النافذة الزمنية الحالية
+        self.candles: deque = deque(maxlen=maxlen)  # (open, high, low, close)
+
+    def _bar_epoch_of(self, dt: datetime) -> int:
+        """
+        يحوّل dt (UTC naive) إلى رقم نافذة زمنية صحيح.
+        يستخدم epoch يدوياً لتجنّب مشكلة .timestamp() مع naive UTC.
+        """
+        total_secs = int((dt - datetime(1970, 1, 1)).total_seconds())
+        return total_secs // self.interval
+
+    def push(self, price: float, ts: datetime = None) -> bool:
+        """
+        يضيف تكة واحدة إلى النافذة الزمنية الصحيحة.
+        يعيد True إذا أُغلقت شمعة جديدة أثناء هذه العملية.
+        """
+        if ts is None:
+            ts = datetime.utcnow()
+        epoch = self._bar_epoch_of(ts)
+
+        if self._bar_epoch is None:
+            # أول تكة على الإطلاق — ابدأ شمعة
+            self._bar_epoch = epoch
+            self._open = self._high = self._low = self._close = price
+            return False
+
+        if epoch > self._bar_epoch:
+            # انتهت النافذة — أغلق الشمعة الحالية واحفظها
+            self.candles.append((self._open, self._high, self._low, self._close))
+            # افتح شمعة جديدة
+            self._bar_epoch = epoch
+            self._open = self._high = self._low = self._close = price
+            return True
+
+        # نفس النافذة — حدّث OHLC الشمعة الجارية
+        if price > self._high:
+            self._high = price
+        if price < self._low:
+            self._low = price
+        self._close = price
+        return False
+
+    def get_ohlc_lists(self):
+        """
+        يعيد (opens, highs, lows, closes) من الشموع المغلقة فقط.
+        الشمعة الجارية غير المغلقة مستثناة عمداً لأن OHLC غير مكتمل.
+        """
+        if not self.candles:
+            return [], [], [], []
+        opens  = [c[0] for c in self.candles]
+        highs  = [c[1] for c in self.candles]
+        lows   = [c[2] for c in self.candles]
+        closes = [c[3] for c in self.candles]
+        return opens, highs, lows, closes
+
+    @property
+    def count(self) -> int:
+        return len(self.candles)
+
+
+# ============================================================
 #  GOLD PRICE MANAGER
 # ============================================================
 class GoldPriceManager:
@@ -630,10 +706,12 @@ class GoldPriceManager:
     def __init__(self):
         self.current_price = None
         self.price_history = deque(maxlen=200)
-        self.highs = deque(maxlen=200)
-        self.lows = deque(maxlen=200)
+        self.highs = deque(maxlen=200)   # fallback مؤقت ريثما تتراكم الشموع
+        self.lows  = deque(maxlen=200)   # fallback مؤقت ريثما تتراكم الشموع
         self.last_update = None
         self.session = "unknown"
+        # شموع OHLC حقيقية مبنية من تدفق التكات (interval=60s)
+        self.candle_agg = CandleAggregator(interval_seconds=60, maxlen=200)
 
     @property
     def price(self):
@@ -756,6 +834,9 @@ class GoldPriceManager:
             self.last_update = datetime.utcnow()
             self.session = self._get_trading_session()
             self.price_history.append(price)
+            # شمعة OHLC حقيقية
+            self.candle_agg.push(price)
+            # fallback مؤقت للمؤشرات الأخرى ريثما تتراكم ≥ 20 شمعة
             spread = price * random.uniform(0.0005, 0.001)
             self.highs.append(round(price + spread, 2))
             self.lows.append(round(price - spread, 2))
@@ -768,17 +849,29 @@ class GoldPriceManager:
         self.last_update = datetime.utcnow()
         self.session = self._get_trading_session()
         self.price_history.append(price)
+        # شمعة OHLC حقيقية
+        self.candle_agg.push(price)
+        # fallback مؤقت
         spread = price * random.uniform(0.0005, 0.001)
         self.highs.append(round(price + spread, 2))
         self.lows.append(round(price - spread, 2))
 
     def get_analysis_data(self) -> dict:
         prices = list(self.price_history)
-        highs = list(self.highs)
-        lows = list(self.lows)
         if len(prices) < 20:
             return None
-        return {"prices": prices, "highs": highs, "lows": lows}
+
+        _, c_highs, c_lows, c_closes = self.candle_agg.get_ohlc_lists()
+
+        if len(c_closes) >= 20:
+            # شموع OHLC حقيقية — High/Low حقيقيان لكل شمعة، لا spread مصطنع
+            return {"prices": c_closes, "highs": c_highs, "lows": c_lows}
+
+        # Fallback مؤقت: تكات خام بينما تتراكم الشموع (< 20 شمعة مغلقة)
+        return {"prices": prices, "highs": list(self.highs), "lows": list(self.lows)}
+
+    # alias لإصلاح استدعاءات morning_market_summary و evening_market_summary
+    get_market_data = get_analysis_data
 
 gold_manager = GoldPriceManager()
 
@@ -1361,49 +1454,74 @@ signal_engine = SignalEngine()
 # ============================================================
 def _test_adx_and_structure() -> None:
     """
-    اختبار على بيانات zigzag بنتيجة معروفة:
-    - سلسلة صاعدة (drift + موجة جيبية) → ADX > 25 و uptrend و buy
-    - سلسلة هابطة (drift عكسي)          → ADX > 25 و downtrend و sell
-    السلسلة الخطية المستقيمة تخفق في detect_market_structure لأنها
-    لا تُنتج swing highs/lows حقيقية — لذلك نستخدم zigzag هنا.
+    اختبارات الصحة لـ adx() و detect_market_structure():
+    T1 — zigzag صاعد  (HH+HL)            → ADX>25، uptrend،   buy
+    T2 — zigzag هابط  (LH+LL)            → ADX>25، downtrend، sell
+    T3 — بيانات غير كافية (< period+2)   → لا crash، يعيد (0,0,0) / ranging
+    T4 — سعر ثابت (ATR=0)                → لا crash، لا قسمة على صفر
+    T5 — ضوضاء واقعية (gaussian + drift) → لا crash، نتيجة صالحة
     """
-    n      = 80
-    drift  = 3.0    # مدى الاتجاه لكل شمعة
-    amp    = 12.0   # سعة التذبذب لضمان swing highs/lows واضحة
+    n     = 80
+    drift = 3.0
+    amp   = 12.0
+    eng   = SignalEngine.__new__(SignalEngine)   # بدون __init__ لتجنّب التبعيات
 
-    # --- TEST 1: اتجاه صاعد ---
-    closes1 = [1000.0 + i * drift + amp * math.sin(i * math.pi / 8) for i in range(n)]
-    highs1  = [c + 5.0 for c in closes1]
-    lows1   = [c - 5.0 for c in closes1]
+    # -------- T1: zigzag صاعد --------
+    c1 = [1000.0 + i*drift + amp*math.sin(i*math.pi/8) for i in range(n)]
+    h1 = [c+5.0 for c in c1];  l1 = [c-5.0 for c in c1]
+    adx1, pdi1, ndi1 = eng.adx(h1, l1, c1)
+    s1 = eng.detect_market_structure(h1, l1)
+    g1 = eng._model_4_wave(c1, h1, l1)
+    assert adx1 > 25,        f"[FAIL T1] ADX={adx1} (يجب > 25)"
+    assert pdi1 > ndi1,      f"[FAIL T1] +DI={pdi1} <= -DI={ndi1}"
+    assert s1 == "uptrend",  f"[FAIL T1] structure={s1}"
+    assert g1 == "buy",      f"[FAIL T1] signal={g1}"
 
-    eng = SignalEngine.__new__(SignalEngine)   # بدون __init__ لتجنّب التبعيات
-    adx1, pdi1, ndi1 = eng.adx(highs1, lows1, closes1)
-    str1  = eng.detect_market_structure(highs1, lows1)
-    sig1  = eng._model_4_wave(closes1, highs1, lows1)
-
-    assert adx1 > 25,          f"[FAIL T1] ADX={adx1} (يجب > 25)"
-    assert pdi1 > ndi1,        f"[FAIL T1] +DI={pdi1} <= -DI={ndi1}"
-    assert str1 == "uptrend",  f"[FAIL T1] structure={str1} (يجب uptrend)"
-    assert sig1 == "buy",      f"[FAIL T1] signal={sig1} (يجب buy)"
-
-    # --- TEST 2: اتجاه هابط ---
-    closes2 = [2000.0 - i * drift + amp * math.sin(i * math.pi / 8) for i in range(n)]
-    highs2  = [c + 5.0 for c in closes2]
-    lows2   = [c - 5.0 for c in closes2]
-
-    adx2, pdi2, ndi2 = eng.adx(highs2, lows2, closes2)
-    str2  = eng.detect_market_structure(highs2, lows2)
-    sig2  = eng._model_4_wave(closes2, highs2, lows2)
-
-    assert adx2 > 25,           f"[FAIL T2] ADX={adx2} (يجب > 25)"
+    # -------- T2: zigzag هابط --------
+    c2 = [2000.0 - i*drift + amp*math.sin(i*math.pi/8) for i in range(n)]
+    h2 = [c+5.0 for c in c2];  l2 = [c-5.0 for c in c2]
+    adx2, pdi2, ndi2 = eng.adx(h2, l2, c2)
+    s2 = eng.detect_market_structure(h2, l2)
+    g2 = eng._model_4_wave(c2, h2, l2)
+    assert adx2 > 25,           f"[FAIL T2] ADX={adx2}"
     assert ndi2 > pdi2,         f"[FAIL T2] -DI={ndi2} <= +DI={pdi2}"
-    assert str2 == "downtrend", f"[FAIL T2] structure={str2} (يجب downtrend)"
-    assert sig2 == "sell",      f"[FAIL T2] signal={sig2} (يجب sell)"
+    assert s2 == "downtrend",   f"[FAIL T2] structure={s2}"
+    assert g2 == "sell",        f"[FAIL T2] signal={g2}"
 
-    print(f"[TEST ✅] Uptrend:   ADX={adx1}  +DI={pdi1}  -DI={ndi1}  "
-          f"structure={str1}  signal={sig1}")
-    print(f"[TEST ✅] Downtrend: ADX={adx2}  +DI={pdi2}  -DI={ndi2}  "
-          f"structure={str2}  signal={sig2}")
+    # -------- T3: بيانات غير كافية (< period+2 = 16 نقطة) --------
+    short = [1000.0] * 10
+    adx3, pdi3, ndi3 = eng.adx(short, short, short)
+    s3 = eng.detect_market_structure(short, short)
+    assert (adx3, pdi3, ndi3) == (0.0, 0.0, 0.0), \
+        f"[FAIL T3] يجب (0,0,0) للبيانات القصيرة، حصلنا: {(adx3, pdi3, ndi3)}"
+    assert s3 == "ranging", f"[FAIL T3] structure={s3} (يجب ranging)"
+
+    # -------- T4: سعر ثابت — ATR=0 ← يختبر حماية القسمة على صفر --------
+    flat = [1500.0] * 60
+    adx4, pdi4, ndi4 = eng.adx(flat, flat, flat)
+    assert isinstance(adx4, float), f"[FAIL T4] يجب float، حصلنا {type(adx4)}"
+    assert adx4 >= 0.0,             f"[FAIL T4] ADX سالب: {adx4}"
+
+    # -------- T5: ضوضاء واقعية (gaussian + drift خفيف) --------
+    import random as _rnd
+    _rnd.seed(42)
+    c5 = [1000.0 + i*1.5 + _rnd.gauss(0, 8) for i in range(n)]
+    h5 = [c + abs(_rnd.gauss(0, 3)) for c in c5]
+    l5 = [c - abs(_rnd.gauss(0, 3)) for c in c5]
+    h5 = [max(h5[i], c5[i]) for i in range(n)]   # ضمان high >= close
+    l5 = [min(l5[i], c5[i]) for i in range(n)]   # ضمان low  <= close
+    adx5, pdi5, ndi5 = eng.adx(h5, l5, c5)
+    s5 = eng.detect_market_structure(h5, l5)
+    assert isinstance(adx5, float) and adx5 >= 0, \
+        f"[FAIL T5] ADX غير صالح: {adx5}"
+    assert s5 in ("uptrend", "downtrend", "ranging"), \
+        f"[FAIL T5] structure غير صالح: {s5}"
+
+    print(f"[TEST ✅] T1 Uptrend:         ADX={adx1}  +DI={pdi1}  -DI={ndi1}  struct={s1}  sig={g1}")
+    print(f"[TEST ✅] T2 Downtrend:       ADX={adx2}  +DI={pdi2}  -DI={ndi2}  struct={s2}  sig={g2}")
+    print(f"[TEST ✅] T3 Short data:      ADX={adx3}  struct={s3}  (no crash)")
+    print(f"[TEST ✅] T4 Flat/zero-ATR:   ADX={adx4}  (no div-by-zero)")
+    print(f"[TEST ✅] T5 Noisy realistic:  ADX={adx5}  struct={s5}  (no crash)")
 
 
 _test_adx_and_structure()
