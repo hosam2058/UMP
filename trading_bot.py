@@ -696,6 +696,58 @@ class CandleAggregator:
     def count(self) -> int:
         return len(self.candles)
 
+    def save(self, path: str) -> None:
+        """
+        يحفظ الشموع المغلقة إلى القرص (JSON) لاستعادتها بعد إعادة التشغيل.
+        يُستدعى تلقائياً عند إغلاق كل شمعة جديدة.
+        """
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            epoch = int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds())
+            payload = {
+                "interval": self.interval,
+                "saved_at": epoch,
+                "candles": [list(c) for c in self.candles],
+            }
+            with open(path, "w") as f:
+                json.dump(payload, f)
+        except Exception as e:
+            logger.warning(f"[CandleAgg] فشل حفظ الشموع على القرص: {e}")
+
+    def load(self, path: str, max_age_seconds: int = 3600) -> int:
+        """
+        يُحمّل الشموع من ملف كاش إلى self.candles إذا كانت طازجة كفايةً.
+        - يتجاهل الكاش إذا كان عمره > max_age_seconds (افتراضي: ساعة).
+        - يتجاهل الكاش إذا كان interval مختلفاً (تغيّر الإعداد).
+        - يعيد عدد الشموع المُحمَّلة، أو 0 إذا تُجوهل الكاش.
+        """
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            now_epoch = int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds())
+            age = now_epoch - data.get("saved_at", 0)
+            if age > max_age_seconds:
+                logger.info(f"[CandleAgg] الكاش قديم ({age // 60} دقيقة) — يبدأ الإحماء من الصفر")
+                return 0
+            if data.get("interval") != self.interval:
+                logger.info(
+                    f"[CandleAgg] interval الكاش ({data.get('interval')}s) ≠ الحالي ({self.interval}s) — تجاهُل"
+                )
+                return 0
+            for c in data["candles"]:
+                self.candles.append(tuple(c))
+            loaded = len(data["candles"])
+            logger.info(
+                f"[CandleAgg] ✅ تم تحميل {loaded} شمعة من الكاش "
+                f"(عمر الكاش: {age // 60} دقيقة — إحماء متبقٍّ: {max(0, 20 - loaded)} شمعة)"
+            )
+            return loaded
+        except FileNotFoundError:
+            return 0   # أول تشغيل — طبيعي تماماً
+        except Exception as e:
+            logger.warning(f"[CandleAgg] فشل تحميل الكاش: {e}")
+            return 0
+
 
 # ============================================================
 #  GOLD PRICE MANAGER
@@ -713,6 +765,8 @@ class GoldPriceManager:
         # شموع OHLC حقيقية مبنية من تدفق التكات
         # interval=300s (5 دقائق): ADX(14) يغطي ~70 دقيقة — متناسب مع cooldown=30m وأفق TP3
         self.candle_agg = CandleAggregator(interval_seconds=300, maxlen=200)
+        # استعادة الشموع من الكاش (إن وُجد وكان عمره < ساعة) لتقليل فترة الإحماء بعد إعادة التشغيل
+        self.candle_agg.load("data/candles_cache.json")
 
     @property
     def price(self):
@@ -835,12 +889,9 @@ class GoldPriceManager:
             self.last_update = datetime.utcnow()
             self.session = self._get_trading_session()
             self.price_history.append(price)
-            # شمعة OHLC حقيقية
-            self.candle_agg.push(price)
-            # fallback مؤقت للمؤشرات الأخرى ريثما تتراكم ≥ 20 شمعة
-            spread = price * random.uniform(0.0005, 0.001)
-            self.highs.append(round(price + spread, 2))
-            self.lows.append(round(price - spread, 2))
+            # شمعة OHLC حقيقية — احفظ الكاش على القرص عند إغلاق كل شمعة
+            if self.candle_agg.push(price):
+                self.candle_agg.save("data/candles_cache.json")
         return result
 
     def feed_ws_price(self, price: float):
@@ -850,12 +901,9 @@ class GoldPriceManager:
         self.last_update = datetime.utcnow()
         self.session = self._get_trading_session()
         self.price_history.append(price)
-        # شمعة OHLC حقيقية
-        self.candle_agg.push(price)
-        # fallback مؤقت
-        spread = price * random.uniform(0.0005, 0.001)
-        self.highs.append(round(price + spread, 2))
-        self.lows.append(round(price - spread, 2))
+        # شمعة OHLC حقيقية — احفظ الكاش على القرص عند إغلاق كل شمعة
+        if self.candle_agg.push(price):
+            self.candle_agg.save("data/candles_cache.json")
 
     def get_analysis_data(self) -> dict:
         """
@@ -1163,8 +1211,9 @@ class SignalEngine:
             return "buy"
         elif z_score > 1.5:
             return "sell"
+        # عتبة 0.3% لـ 10 شموع × 5 دقائق = 50 دقيقة (كانت 0.1% — مناسبة للتكات لا للشموع)
         trend = (prices[-1] - prices[-10]) / prices[-10] * 100
-        return "buy" if trend > 0.1 else ("sell" if trend < -0.1 else "neutral")
+        return "buy" if trend > 0.3 else ("sell" if trend < -0.3 else "neutral")
 
     def _model_2_mathematical(self, prices: list) -> str:
         if len(prices) < 14:
@@ -1181,10 +1230,11 @@ class SignalEngine:
     def _model_3_momentum(self, prices: list) -> str:
         if len(prices) < 10:
             return "neutral"
+        # عتبة 0.5% لـ 10 شموع × 5 دقائق = 50 دقيقة (كانت 0.3% — مناسبة للتكات لا للشموع)
         roc = (prices[-1] - prices[-10]) / prices[-10] * 100
-        if roc > 0.3:
+        if roc > 0.5:
             return "buy"
-        elif roc < -0.3:
+        elif roc < -0.5:
             return "sell"
         return "neutral"
 
@@ -1314,9 +1364,11 @@ class SignalEngine:
         current = prices[-1] if prices else 0
         avg_recent = sum(prices[-5:]) / 5 if len(prices) >= 5 else current
         session_multiplier = 1.2 if 7 <= hour <= 17 else 0.8
-        if current > avg_recent * 1.0005 * session_multiplier:
+        # عتبة 0.2% لـ avg_recent (متوسط آخر 5 شموع = 25 دقيقة)
+        # كانت 0.05% — حساسة جداً للتكات اللحظية، تطلق إشارات مستمرة مع شموع 5 دقائق
+        if current > avg_recent * 1.002 * session_multiplier:
             return "buy"
-        elif current < avg_recent * 0.9995 / session_multiplier:
+        elif current < avg_recent * 0.998 / session_multiplier:
             return "sell"
         return "neutral"
 
