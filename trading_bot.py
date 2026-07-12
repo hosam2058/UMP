@@ -710,8 +710,9 @@ class GoldPriceManager:
         self.lows  = deque(maxlen=200)   # fallback مؤقت ريثما تتراكم الشموع
         self.last_update = None
         self.session = "unknown"
-        # شموع OHLC حقيقية مبنية من تدفق التكات (interval=60s)
-        self.candle_agg = CandleAggregator(interval_seconds=60, maxlen=200)
+        # شموع OHLC حقيقية مبنية من تدفق التكات
+        # interval=300s (5 دقائق): ADX(14) يغطي ~70 دقيقة — متناسب مع cooldown=30m وأفق TP3
+        self.candle_agg = CandleAggregator(interval_seconds=300, maxlen=200)
 
     @property
     def price(self):
@@ -857,18 +858,21 @@ class GoldPriceManager:
         self.lows.append(round(price - spread, 2))
 
     def get_analysis_data(self) -> dict:
-        prices = list(self.price_history)
-        if len(prices) < 20:
-            return None
-
+        """
+        يعيد بيانات التحليل من شموع OHLC حقيقية فقط.
+        يعيد None إذا لم تتراكم 20 شمعة مغلقة بعد (فترة الإحماء).
+        لا يوجد fallback بالبيانات المصطنعة — الإشارات تُعطَّل تلقائياً
+        حتى تتوفر بيانات حقيقية (20 × 5 دقائق = ~100 دقيقة بعد كل تشغيل).
+        """
         _, c_highs, c_lows, c_closes = self.candle_agg.get_ohlc_lists()
 
-        if len(c_closes) >= 20:
-            # شموع OHLC حقيقية — High/Low حقيقيان لكل شمعة، لا spread مصطنع
-            return {"prices": c_closes, "highs": c_highs, "lows": c_lows}
+        if len(c_closes) < 20:
+            # فترة الإحماء: لا إشارات حتى تتجمع شموع كافية
+            remaining = 20 - len(c_closes)
+            logger.info(f"[Warmup] {len(c_closes)}/20 شمعة مكتملة — {remaining} شمعة متبقية (~{remaining*5} دقيقة)")
+            return None
 
-        # Fallback مؤقت: تكات خام بينما تتراكم الشموع (< 20 شمعة مغلقة)
-        return {"prices": prices, "highs": list(self.highs), "lows": list(self.lows)}
+        return {"prices": c_closes, "highs": c_highs, "lows": c_lows}
 
     # alias لإصلاح استدعاءات morning_market_summary و evening_market_summary
     get_market_data = get_analysis_data
