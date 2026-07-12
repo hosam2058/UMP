@@ -187,7 +187,7 @@ _migrate_db()
 
 def _ensure_admins_vip():
     """تأكد أن كل ADMIN_IDS هم VIP (خطة ماسية) دائماً عند بدء البوت"""
-    _ADMIN_IDS = [8865738615, 7929701751]
+    _ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
     db = SessionLocal()
     try:
         for aid in _ADMIN_IDS:
@@ -269,7 +269,10 @@ def _update_stats_for_website():
 # ============================================================
 BOT_TOKEN = PAIR_CFG['token']
 WHATSAPP_LINK = "https://wa.me/201500236188"
-ADMIN_IDS = [8865738615, 7929701751]
+_admin_env = os.getenv("ADMIN_IDS", "")
+if not _admin_env:
+    raise RuntimeError("Environment variable ADMIN_IDS is not defined — add it to Secrets")
+ADMIN_IDS = [int(x) for x in _admin_env.split(",") if x.strip().isdigit()]
 GOLD_API_KEY = os.getenv("GOLD_API_KEY", "")
 WEBSITE_URL = f"https://{os.getenv('REPLIT_DEV_DOMAIN', 'trading-bot.replit.app')}"
 
@@ -782,11 +785,12 @@ gold_manager = GoldPriceManager()
 # ============================================================
 #  FINNHUB WEBSOCKET
 # ============================================================
-# مفاتيح Finnhub — الأول هو المفضل، الثاني احتياطي
-FINNHUB_KEYS = [
-    "d8uptkpr01qrt65tkud0d8uptkpr01qrt65tkudg",   # المفتاح الجديد (الأولوية)
-    "d840bm9r01qkm5c9pgfgd840bm9r01qkm5c9pgg0",   # المفتاح القديم (احتياطي)
-]
+# مفاتيح Finnhub — تُقرأ من متغيرات البيئة (Secrets)
+_fk1 = os.getenv("FINNHUB_KEY_1")
+_fk2 = os.getenv("FINNHUB_KEY_2", "")
+if not _fk1:
+    raise RuntimeError("Environment variable FINNHUB_KEY_1 is not defined — add it to Secrets")
+FINNHUB_KEYS = [k for k in [_fk1, _fk2] if k]
 FINNHUB_API_KEY = FINNHUB_KEYS[0]   # للتوافق مع باقي الكود
 
 class FinnhubWebSocket:

@@ -7,7 +7,10 @@ if not TELEGRAM_BOT_TOKEN:
     print("اضبط متغير البيئة: export TELEGRAM_BOT_TOKEN='your_token_here'")
     exit(1)
 
-ADMIN_IDS = [int(x) for x in os.getenv('ADMIN_IDS', '8865738615,7929701751').split(',') if x.strip().isdigit()]
+_admin_ids_env = os.getenv('ADMIN_IDS', '')
+if not _admin_ids_env:
+    raise RuntimeError("Environment variable ADMIN_IDS is not defined — add it to Secrets")
+ADMIN_IDS = [int(x) for x in _admin_ids_env.split(',') if x.strip().isdigit()]
 DATA_DIR = "data"
 DOWNLOADS_DIR = "downloads"
 DATABASE_URL = "sqlite:///data/bot.db"
@@ -19,7 +22,7 @@ PAYMENT_INFO = {
 }
 
 # OpenAI Whisper (اختياري — إن أردت STT قوي)
-OPENAI_API_KEY = ""  # ضع مفتاح OpenAI هنا لو عندك (مثلاً: "sk-...")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")  # اختياري — أضفه إلى Secrets إن أردت
 
 # --- ⚔️ نظام الحماية المتقدم ---
 RATE_LIMIT_SECONDS = 10            # وقت الانتظار بين تحميلات نفس المستخدم
