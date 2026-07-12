@@ -1091,16 +1091,125 @@ class SignalEngine:
             return "sell"
         return "neutral"
 
-    def _model_4_wave(self, prices: list) -> str:
-        if len(prices) < 20:
+    # ------------------------------------------------------------------ #
+    #  ADX — Average Directional Index (Wilder Smoothing)                #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def adx(highs: list, lows: list, closes: list, period: int = 14):
+        """
+        يحسب ADX القياسي مع +DI و -DI باستخدام Wilder Smoothing.
+        يعيد (adx_value, plus_di, minus_di) — كلها أعداد عشرية مدوّرة.
+        """
+        if len(closes) < period + 2:
+            return 0.0, 0.0, 0.0
+
+        h = list(highs)
+        l = list(lows)
+        c = list(closes)
+        n = len(c)
+
+        tr_list, pdm_list, ndm_list = [], [], []
+        for i in range(1, n):
+            tr = max(h[i] - l[i],
+                     abs(h[i] - c[i - 1]),
+                     abs(l[i] - c[i - 1]))
+            up   = h[i] - h[i - 1]
+            down = l[i - 1] - l[i]
+            pdm_list.append(up   if up > down and up > 0 else 0.0)
+            ndm_list.append(down if down > up and down > 0 else 0.0)
+            tr_list.append(tr)
+
+        if len(tr_list) < period:
+            return 0.0, 0.0, 0.0
+
+        # تهيئة Wilder بأول مجموع بسيط
+        atr_s = sum(tr_list[:period])
+        pdm_s = sum(pdm_list[:period])
+        ndm_s = sum(ndm_list[:period])
+
+        dx_list = []
+        for i in range(period, len(tr_list)):
+            atr_s = atr_s - atr_s / period + tr_list[i]
+            pdm_s = pdm_s - pdm_s / period + pdm_list[i]
+            ndm_s = ndm_s - ndm_s / period + ndm_list[i]
+            pdi = 100.0 * pdm_s / atr_s if atr_s else 0.0
+            ndi = 100.0 * ndm_s / atr_s if atr_s else 0.0
+            dsum = pdi + ndi
+            dx   = 100.0 * abs(pdi - ndi) / dsum if dsum else 0.0
+            dx_list.append((dx, pdi, ndi))
+
+        if len(dx_list) < period:
+            last = dx_list[-1] if dx_list else (0.0, 0.0, 0.0)
+            return 0.0, round(last[1], 2), round(last[2], 2)
+
+        # تنعيم DX → ADX
+        adx_val = sum(d[0] for d in dx_list[:period]) / period
+        final_pdi, final_ndi = dx_list[period - 1][1], dx_list[period - 1][2]
+        for i in range(period, len(dx_list)):
+            adx_val   = (adx_val * (period - 1) + dx_list[i][0]) / period
+            final_pdi = dx_list[i][1]
+            final_ndi = dx_list[i][2]
+
+        return round(adx_val, 2), round(final_pdi, 2), round(final_ndi, 2)
+
+    # ------------------------------------------------------------------ #
+    #  Market Structure — Swing Highs/Lows + Trend Classification        #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def detect_market_structure(highs: list, lows: list, window: int = 5) -> str:
+        """
+        يكتشف القمم والقيعان المؤكدة (swing highs/lows) بطريقة صحيحة:
+        نقطة أعلى/أدنى من N نقطة على كلا الجانبين.
+        يصنّف الاتجاه: "uptrend" | "downtrend" | "ranging"
+        """
+        if len(highs) < window * 2 + 1:
+            return "ranging"
+
+        swing_highs, swing_lows = [], []
+        for i in range(window, len(highs) - window):
+            window_h = highs[i - window: i + window + 1]
+            window_l = lows[i  - window: i + window + 1]
+            if highs[i] == max(window_h):
+                swing_highs.append(highs[i])
+            if lows[i] == min(window_l):
+                swing_lows.append(lows[i])
+
+        if len(swing_highs) >= 2 and len(swing_lows) >= 2:
+            hh = swing_highs[-1] > swing_highs[-2]   # Higher High
+            hl = swing_lows[-1]  > swing_lows[-2]    # Higher Low
+            lh = swing_highs[-1] < swing_highs[-2]   # Lower High
+            ll = swing_lows[-1]  < swing_lows[-2]    # Lower Low
+            if hh and hl:
+                return "uptrend"
+            if lh and ll:
+                return "downtrend"
+
+        return "ranging"
+
+    # ------------------------------------------------------------------ #
+    #  Model 4 — ADX + Market Structure (يستبدل المنطق المبسّط السابق)  #
+    # ------------------------------------------------------------------ #
+    def _model_4_wave(self, prices: list,
+                      highs: list = None, lows: list = None) -> str:
+        """
+        Buy:     adx_value > 25  و  market_structure == "uptrend"
+        Sell:    adx_value > 25  و  market_structure == "downtrend"
+        Neutral: أي حالة أخرى (سوق عرضي أو اتجاه ضعيف)
+        """
+        if highs is None:
+            highs = prices
+        if lows is None:
+            lows = prices
+        if len(prices) < 30:
             return "neutral"
-        highs = [max(prices[i:i+3]) for i in range(0, len(prices)-2, 3)]
-        lows = [min(prices[i:i+3]) for i in range(0, len(prices)-2, 3)]
-        if len(highs) >= 3:
-            if highs[-1] > highs[-2] > highs[-3] and lows[-1] > lows[-2]:
-                return "buy"
-            elif highs[-1] < highs[-2] < highs[-3] and lows[-1] < lows[-2]:
-                return "sell"
+
+        adx_val, plus_di, minus_di = self.adx(highs, lows, prices)
+        structure = self.detect_market_structure(highs, lows)
+
+        if adx_val > 25 and structure == "uptrend":
+            return "buy"
+        if adx_val > 25 and structure == "downtrend":
+            return "sell"
         return "neutral"
 
     def _model_5_seasonal(self, prices: list) -> str:
@@ -1140,7 +1249,7 @@ class SignalEngine:
             self._model_1_statistical(prices),
             self._model_2_mathematical(prices),
             self._model_3_momentum(prices),
-            self._model_4_wave(prices),
+            self._model_4_wave(prices, highs, lows),
             self._model_5_seasonal(prices),
             self._model_6_probabilistic(prices),
         ]
@@ -1245,6 +1354,59 @@ class SignalEngine:
         }
 
 signal_engine = SignalEngine()
+
+
+# ============================================================
+#  TEST — ADX + Market Structure (يُشغَّل عند بدء الكود مرة واحدة)
+# ============================================================
+def _test_adx_and_structure() -> None:
+    """
+    اختبار على بيانات zigzag بنتيجة معروفة:
+    - سلسلة صاعدة (drift + موجة جيبية) → ADX > 25 و uptrend و buy
+    - سلسلة هابطة (drift عكسي)          → ADX > 25 و downtrend و sell
+    السلسلة الخطية المستقيمة تخفق في detect_market_structure لأنها
+    لا تُنتج swing highs/lows حقيقية — لذلك نستخدم zigzag هنا.
+    """
+    n      = 80
+    drift  = 3.0    # مدى الاتجاه لكل شمعة
+    amp    = 12.0   # سعة التذبذب لضمان swing highs/lows واضحة
+
+    # --- TEST 1: اتجاه صاعد ---
+    closes1 = [1000.0 + i * drift + amp * math.sin(i * math.pi / 8) for i in range(n)]
+    highs1  = [c + 5.0 for c in closes1]
+    lows1   = [c - 5.0 for c in closes1]
+
+    eng = SignalEngine.__new__(SignalEngine)   # بدون __init__ لتجنّب التبعيات
+    adx1, pdi1, ndi1 = eng.adx(highs1, lows1, closes1)
+    str1  = eng.detect_market_structure(highs1, lows1)
+    sig1  = eng._model_4_wave(closes1, highs1, lows1)
+
+    assert adx1 > 25,          f"[FAIL T1] ADX={adx1} (يجب > 25)"
+    assert pdi1 > ndi1,        f"[FAIL T1] +DI={pdi1} <= -DI={ndi1}"
+    assert str1 == "uptrend",  f"[FAIL T1] structure={str1} (يجب uptrend)"
+    assert sig1 == "buy",      f"[FAIL T1] signal={sig1} (يجب buy)"
+
+    # --- TEST 2: اتجاه هابط ---
+    closes2 = [2000.0 - i * drift + amp * math.sin(i * math.pi / 8) for i in range(n)]
+    highs2  = [c + 5.0 for c in closes2]
+    lows2   = [c - 5.0 for c in closes2]
+
+    adx2, pdi2, ndi2 = eng.adx(highs2, lows2, closes2)
+    str2  = eng.detect_market_structure(highs2, lows2)
+    sig2  = eng._model_4_wave(closes2, highs2, lows2)
+
+    assert adx2 > 25,           f"[FAIL T2] ADX={adx2} (يجب > 25)"
+    assert ndi2 > pdi2,         f"[FAIL T2] -DI={ndi2} <= +DI={pdi2}"
+    assert str2 == "downtrend", f"[FAIL T2] structure={str2} (يجب downtrend)"
+    assert sig2 == "sell",      f"[FAIL T2] signal={sig2} (يجب sell)"
+
+    print(f"[TEST ✅] Uptrend:   ADX={adx1}  +DI={pdi1}  -DI={ndi1}  "
+          f"structure={str1}  signal={sig1}")
+    print(f"[TEST ✅] Downtrend: ADX={adx2}  +DI={pdi2}  -DI={ndi2}  "
+          f"structure={str2}  signal={sig2}")
+
+
+_test_adx_and_structure()
 
 
 # ============================================================
