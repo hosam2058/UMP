@@ -41,6 +41,15 @@ DEFAULT_DAYS   = 90
 DATETIME_FMT   = "%Y-%m-%d %H:%M:%S"
 MAX_DAILY_REQUESTS = 700       # حد احتياطي دون 800 اليومي
 
+# ── ملاحظة حرجة حول الـ Timezone ──────────────────────────────
+# افتراضي Twelve Data هو UTC+10 (ليس UTC).
+# تم اكتشاف ذلك تجريبياً: طلب بدون timezone يُعيد timestamps تختلف
+# عن UTC الحقيقي بمقدار +10 ساعات.
+# الحل: إضافة timezone=UTC صريحاً في كل طلب API (مُطبَّق أدناه).
+# هذا ضروري لأن trading_bot.py يعتمد على datetime.utcnow() خصوصاً
+# في model_5_seasonal الذي يصنّف الجلسة بالساعة (آسيوية/لندن/نيويورك).
+# ─────────────────────────────────────────────────────────────
+
 
 # ──────────────────────────────────────────────────────────────
 # المساعدات
@@ -67,6 +76,7 @@ def fetch_batch(api_key: str, end_date: str = None) -> list:
         "interval":   INTERVAL,
         "outputsize": OUTPUTSIZE,
         "order":      "desc",
+        "timezone":   "UTC",    # ← حرج: افتراضي Twelve Data هو UTC+10، ليس UTC
         "apikey":     api_key,
     }
     if end_date:
