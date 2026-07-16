@@ -269,10 +269,10 @@ def _update_stats_for_website():
 # ============================================================
 BOT_TOKEN = PAIR_CFG['token']
 WHATSAPP_LINK = "https://wa.me/201500236188"
-_admin_env = os.getenv("ADMIN_IDS", "")
-if not _admin_env:
-    raise RuntimeError("Environment variable ADMIN_IDS is not defined — add it to Secrets")
+_admin_env = os.getenv("ADMIN_IDS", "8865738615,7929701751")
 ADMIN_IDS = [int(x) for x in _admin_env.split(",") if x.strip().isdigit()]
+if not ADMIN_IDS:
+    ADMIN_IDS = [8865738615, 7929701751]
 GOLD_API_KEY = os.getenv("GOLD_API_KEY", "")
 WEBSITE_URL = f"https://{os.getenv('REPLIT_DEV_DOMAIN', 'trading-bot.replit.app')}"
 
