@@ -11,7 +11,6 @@ import math
 import random
 import requests
 import threading
-import time
 try:
     from websocket._app import WebSocketApp as _WebSocketApp
     _WS_AVAILABLE = True
@@ -48,7 +47,7 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = "sqlite:///" + PAIR_CFG['db_file']
 os.makedirs("data", exist_ok=True)
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 class TradingUser(Base):
@@ -65,10 +64,6 @@ class TradingUser(Base):
     bonus_signals = Column(Integer, default=0)
     vip_expires_at = Column(DateTime, nullable=True)
     referred_by = Column(String, default="")
-    tier = Column(String, default="trial")
-    signals_today = Column(Integer, default=0)
-    ai_analyses_today = Column(Integer, default=0)
-    usage_date = Column(String, default="")
 
 class Signal(Base):
     __tablename__ = "signals"
@@ -161,10 +156,6 @@ def _migrate_db():
             "ALTER TABLE trading_users ADD COLUMN bonus_signals INTEGER DEFAULT 0",
             "ALTER TABLE trading_users ADD COLUMN vip_expires_at TIMESTAMP",
             "ALTER TABLE trading_users ADD COLUMN referred_by TEXT DEFAULT ''",
-            "ALTER TABLE trading_users ADD COLUMN tier TEXT DEFAULT 'trial'",
-            "ALTER TABLE trading_users ADD COLUMN signals_today INTEGER DEFAULT 0",
-            "ALTER TABLE trading_users ADD COLUMN ai_analyses_today INTEGER DEFAULT 0",
-            "ALTER TABLE trading_users ADD COLUMN usage_date TEXT DEFAULT ''",
             # auto_trade_accounts columns
             "ALTER TABLE auto_trade_accounts ADD COLUMN meta_token TEXT DEFAULT ''",
             "ALTER TABLE auto_trade_accounts ADD COLUMN meta_account_id TEXT DEFAULT ''",
@@ -186,44 +177,20 @@ def _migrate_db():
 _migrate_db()
 
 def _ensure_admins_vip():
-    """تأكد أن كل ADMIN_IDS هم VIP (خطة ماسية) دائماً عند بدء البوت"""
-    _ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
+    """تأكد أن كل ADMIN_IDS هم VIP دائماً عند بدء البوت"""
+    _ADMIN_IDS = [8865738615, 7929701751]
     db = SessionLocal()
     try:
         for aid in _ADMIN_IDS:
             u = db.query(TradingUser).filter(TradingUser.tg_id == str(aid)).first()
-            if u:
-                changed = False
-                if not u.is_vip:
-                    u.is_vip = True
-                    changed = True
-                if (u.tier or "trial") not in ("basic", "pro", "vip"):
-                    u.tier = "vip"
-                    changed = True
-                if changed:
-                    db.commit()
+            if u and not u.is_vip:
+                u.is_vip = True
+                db.commit()
     except Exception:
         pass
     finally:
         db.close()
 _ensure_admins_vip()
-
-def _backfill_legacy_vip_tiers():
-    """توافق قديم: أي حساب is_vip=True بدون تصنيف خطة يُعتبر 'ماسي' افتراضياً"""
-    db = SessionLocal()
-    try:
-        legacy = db.query(TradingUser).filter(
-            TradingUser.is_vip == True
-        ).all()
-        for u in legacy:
-            if (u.tier or "trial") not in ("basic", "pro", "vip"):
-                u.tier = "vip"
-        db.commit()
-    except Exception:
-        pass
-    finally:
-        db.close()
-_backfill_legacy_vip_tiers()
 
 SIGNAL_FILE = "data/latest_signal.json"
 STATS_FILE  = "data/website_stats.json"
@@ -269,25 +236,9 @@ def _update_stats_for_website():
 # ============================================================
 BOT_TOKEN = PAIR_CFG['token']
 WHATSAPP_LINK = "https://wa.me/201500236188"
-_admin_env = os.getenv("ADMIN_IDS", "8865738615,7929701751")
-ADMIN_IDS = [int(x) for x in _admin_env.split(",") if x.strip().isdigit()]
-if not ADMIN_IDS:
-    ADMIN_IDS = [8865738615, 7929701751]
+ADMIN_IDS = [8865738615, 7929701751]
 GOLD_API_KEY = os.getenv("GOLD_API_KEY", "")
 WEBSITE_URL = f"https://{os.getenv('REPLIT_DEV_DOMAIN', 'trading-bot.replit.app')}"
-
-def get_website_url():
-    """يرجع رابط الموقع الحالي — يقرأه من data/website_url.txt (يكتبه start_tunnel.sh
-    برابط Cloudflare Tunnel الجديد عند كل تشغيل)، أو يرجع WEBSITE_URL كرابط احتياطي
-    إذا لم يوجد الملف أو كان فارغاً/غير صالح."""
-    try:
-        with open("data/website_url.txt", "r") as f:
-            url = f.read().strip()
-            if url.startswith("http"):
-                return url
-    except Exception:
-        pass
-    return WEBSITE_URL
 
 # ============================================================
 #  MARKET HOURS CHECKER - NEW
@@ -405,18 +356,18 @@ class GeminiManager:
         self.current_index = 0
         self.exhausted = set()
         # نماذج النص فقط
-        # ⚠️ gemini-2.0-* و gemini-1.5-* متوقفة رسمياً من جوجل (shut down 1 يونيو 2026) —
-        # لا تُعِد إضافتها؛ استخدم فقط: gemini-2.5-flash-lite, gemini-2.5-flash, gemini-3.1-flash-lite
         self.text_models = [
-            "gemini-2.5-flash-lite",
-            "gemini-2.5-flash",
-            "gemini-3.1-flash-lite",
+            "gemini-2.0-flash-lite",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-flash-8b-latest",
         ]
-        # نماذج الرؤية (صور الشارت) - تدعم الصور — نفس القائمة، الثلاثة تدعم الإدخال متعدد الوسائط
+        # نماذج الرؤية (صور الشارت) - تدعم الصور
         self.vision_models = [
-            "gemini-2.5-flash-lite",
-            "gemini-2.5-flash",
-            "gemini-3.1-flash-lite",
+            "gemini-2.0-flash-lite",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-flash-8b-latest",
         ]
         logger.info(f"✅ GeminiManager: {len(self.valid_keys)} مفتاح نشط")
 
@@ -622,134 +573,6 @@ class TechnicalAnalysis:
         return round(support, 2), round(resistance, 2)
 
 # ============================================================
-#  CANDLE AGGREGATOR — يبني شموع OHLC حقيقية من تدفق التكات
-# ============================================================
-class CandleAggregator:
-    """
-    يجمّع التكات ضمن نافذة زمنية ثابتة وينتج شموع OHLC حقيقية.
-    الشمعة تُغلق فقط عند انتهاء الفترة الزمنية، لا عند كل تكة.
-    interval_seconds=60 → شموع دقيقة واحدة (قابل للتغيير).
-    """
-
-    def __init__(self, interval_seconds: int = 60, maxlen: int = 200):
-        self.interval   = interval_seconds
-        self._open: float | None  = None
-        self._high: float | None  = None
-        self._low:  float | None  = None
-        self._close: float | None = None
-        self._bar_epoch: int | None = None       # رقم النافذة الزمنية الحالية
-        self.candles: deque = deque(maxlen=maxlen)  # (open, high, low, close)
-
-    def _bar_epoch_of(self, dt: datetime) -> int:
-        """
-        يحوّل dt (UTC naive) إلى رقم نافذة زمنية صحيح.
-        يستخدم epoch يدوياً لتجنّب مشكلة .timestamp() مع naive UTC.
-        """
-        total_secs = int((dt - datetime(1970, 1, 1)).total_seconds())
-        return total_secs // self.interval
-
-    def push(self, price: float, ts: datetime = None) -> bool:
-        """
-        يضيف تكة واحدة إلى النافذة الزمنية الصحيحة.
-        يعيد True إذا أُغلقت شمعة جديدة أثناء هذه العملية.
-        """
-        if ts is None:
-            ts = datetime.utcnow()
-        epoch = self._bar_epoch_of(ts)
-
-        if self._bar_epoch is None:
-            # أول تكة على الإطلاق — ابدأ شمعة
-            self._bar_epoch = epoch
-            self._open = self._high = self._low = self._close = price
-            return False
-
-        if epoch > self._bar_epoch:
-            # انتهت النافذة — أغلق الشمعة الحالية واحفظها
-            self.candles.append((self._open, self._high, self._low, self._close))
-            # افتح شمعة جديدة
-            self._bar_epoch = epoch
-            self._open = self._high = self._low = self._close = price
-            return True
-
-        # نفس النافذة — حدّث OHLC الشمعة الجارية
-        if price > self._high:
-            self._high = price
-        if price < self._low:
-            self._low = price
-        self._close = price
-        return False
-
-    def get_ohlc_lists(self):
-        """
-        يعيد (opens, highs, lows, closes) من الشموع المغلقة فقط.
-        الشمعة الجارية غير المغلقة مستثناة عمداً لأن OHLC غير مكتمل.
-        """
-        if not self.candles:
-            return [], [], [], []
-        opens  = [c[0] for c in self.candles]
-        highs  = [c[1] for c in self.candles]
-        lows   = [c[2] for c in self.candles]
-        closes = [c[3] for c in self.candles]
-        return opens, highs, lows, closes
-
-    @property
-    def count(self) -> int:
-        return len(self.candles)
-
-    def save(self, path: str) -> None:
-        """
-        يحفظ الشموع المغلقة إلى القرص (JSON) لاستعادتها بعد إعادة التشغيل.
-        يُستدعى تلقائياً عند إغلاق كل شمعة جديدة.
-        """
-        try:
-            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-            epoch = int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds())
-            payload = {
-                "interval": self.interval,
-                "saved_at": epoch,
-                "candles": [list(c) for c in self.candles],
-            }
-            with open(path, "w") as f:
-                json.dump(payload, f)
-        except Exception as e:
-            logger.warning(f"[CandleAgg] فشل حفظ الشموع على القرص: {e}")
-
-    def load(self, path: str, max_age_seconds: int = 3600) -> int:
-        """
-        يُحمّل الشموع من ملف كاش إلى self.candles إذا كانت طازجة كفايةً.
-        - يتجاهل الكاش إذا كان عمره > max_age_seconds (افتراضي: ساعة).
-        - يتجاهل الكاش إذا كان interval مختلفاً (تغيّر الإعداد).
-        - يعيد عدد الشموع المُحمَّلة، أو 0 إذا تُجوهل الكاش.
-        """
-        try:
-            with open(path) as f:
-                data = json.load(f)
-            now_epoch = int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds())
-            age = now_epoch - data.get("saved_at", 0)
-            if age > max_age_seconds:
-                logger.info(f"[CandleAgg] الكاش قديم ({age // 60} دقيقة) — يبدأ الإحماء من الصفر")
-                return 0
-            if data.get("interval") != self.interval:
-                logger.info(
-                    f"[CandleAgg] interval الكاش ({data.get('interval')}s) ≠ الحالي ({self.interval}s) — تجاهُل"
-                )
-                return 0
-            for c in data["candles"]:
-                self.candles.append(tuple(c))
-            loaded = len(data["candles"])
-            logger.info(
-                f"[CandleAgg] ✅ تم تحميل {loaded} شمعة من الكاش "
-                f"(عمر الكاش: {age // 60} دقيقة — إحماء متبقٍّ: {max(0, 20 - loaded)} شمعة)"
-            )
-            return loaded
-        except FileNotFoundError:
-            return 0   # أول تشغيل — طبيعي تماماً
-        except Exception as e:
-            logger.warning(f"[CandleAgg] فشل تحميل الكاش: {e}")
-            return 0
-
-
-# ============================================================
 #  GOLD PRICE MANAGER
 # ============================================================
 class GoldPriceManager:
@@ -758,15 +581,10 @@ class GoldPriceManager:
     def __init__(self):
         self.current_price = None
         self.price_history = deque(maxlen=200)
-        self.highs = deque(maxlen=200)   # fallback مؤقت ريثما تتراكم الشموع
-        self.lows  = deque(maxlen=200)   # fallback مؤقت ريثما تتراكم الشموع
+        self.highs = deque(maxlen=200)
+        self.lows = deque(maxlen=200)
         self.last_update = None
         self.session = "unknown"
-        # شموع OHLC حقيقية مبنية من تدفق التكات
-        # interval=300s (5 دقائق): ADX(14) يغطي ~70 دقيقة — متناسب مع cooldown=30m وأفق TP3
-        self.candle_agg = CandleAggregator(interval_seconds=300, maxlen=200)
-        # استعادة الشموع من الكاش (إن وُجد وكان عمره < ساعة) لتقليل فترة الإحماء بعد إعادة التشغيل
-        self.candle_agg.load("data/candles_cache.json")
 
     @property
     def price(self):
@@ -889,9 +707,9 @@ class GoldPriceManager:
             self.last_update = datetime.utcnow()
             self.session = self._get_trading_session()
             self.price_history.append(price)
-            # شمعة OHLC حقيقية — احفظ الكاش على القرص عند إغلاق كل شمعة
-            if self.candle_agg.push(price):
-                self.candle_agg.save("data/candles_cache.json")
+            spread = price * random.uniform(0.0005, 0.001)
+            self.highs.append(round(price + spread, 2))
+            self.lows.append(round(price - spread, 2))
         return result
 
     def feed_ws_price(self, price: float):
@@ -901,41 +719,28 @@ class GoldPriceManager:
         self.last_update = datetime.utcnow()
         self.session = self._get_trading_session()
         self.price_history.append(price)
-        # شمعة OHLC حقيقية — احفظ الكاش على القرص عند إغلاق كل شمعة
-        if self.candle_agg.push(price):
-            self.candle_agg.save("data/candles_cache.json")
+        spread = price * random.uniform(0.0005, 0.001)
+        self.highs.append(round(price + spread, 2))
+        self.lows.append(round(price - spread, 2))
 
     def get_analysis_data(self) -> dict:
-        """
-        يعيد بيانات التحليل من شموع OHLC حقيقية فقط.
-        يعيد None إذا لم تتراكم 20 شمعة مغلقة بعد (فترة الإحماء).
-        لا يوجد fallback بالبيانات المصطنعة — الإشارات تُعطَّل تلقائياً
-        حتى تتوفر بيانات حقيقية (20 × 5 دقائق = ~100 دقيقة بعد كل تشغيل).
-        """
-        _, c_highs, c_lows, c_closes = self.candle_agg.get_ohlc_lists()
-
-        if len(c_closes) < 20:
-            # فترة الإحماء: لا إشارات حتى تتجمع شموع كافية
-            remaining = 20 - len(c_closes)
-            logger.info(f"[Warmup] {len(c_closes)}/20 شمعة مكتملة — {remaining} شمعة متبقية (~{remaining*5} دقيقة)")
+        prices = list(self.price_history)
+        highs = list(self.highs)
+        lows = list(self.lows)
+        if len(prices) < 20:
             return None
-
-        return {"prices": c_closes, "highs": c_highs, "lows": c_lows}
-
-    # alias لإصلاح استدعاءات morning_market_summary و evening_market_summary
-    get_market_data = get_analysis_data
+        return {"prices": prices, "highs": highs, "lows": lows}
 
 gold_manager = GoldPriceManager()
 
 # ============================================================
 #  FINNHUB WEBSOCKET
 # ============================================================
-# مفاتيح Finnhub — تُقرأ من متغيرات البيئة (Secrets)
-_fk1 = os.getenv("FINNHUB_KEY_1")
-_fk2 = os.getenv("FINNHUB_KEY_2", "")
-if not _fk1:
-    raise RuntimeError("Environment variable FINNHUB_KEY_1 is not defined — add it to Secrets")
-FINNHUB_KEYS = [k for k in [_fk1, _fk2] if k]
+# مفاتيح Finnhub — الأول هو المفضل، الثاني احتياطي
+FINNHUB_KEYS = [
+    "d8uptkpr01qrt65tkud0d8uptkpr01qrt65tkudg",   # المفتاح الجديد (الأولوية)
+    "d840bm9r01qkm5c9pgfgd840bm9r01qkm5c9pgg0",   # المفتاح القديم (احتياطي)
+]
 FINNHUB_API_KEY = FINNHUB_KEYS[0]   # للتوافق مع باقي الكود
 
 class FinnhubWebSocket:
@@ -1087,104 +892,6 @@ def trial_banner(user) -> str:
     return ""
 
 # ============================================================
-#  SUBSCRIPTION TIERS - نظام الخطط الثلاثة (فضي/ذهبي/ماسي)
-# ============================================================
-TIER_LIMITS = {
-    "basic": {"name": "🥉 الفضية",  "price": 9.99,  "signals_per_day": 15, "ai_per_day": 0,  "auto_trading": False, "full_indicators": False, "priority_support": False, "instant_alerts": False, "alerts_max": 3},
-    "pro":   {"name": "🥈 الذهبية", "price": 17.99, "signals_per_day": 20, "ai_per_day": 3,  "auto_trading": False, "full_indicators": True,  "priority_support": True,  "instant_alerts": False, "alerts_max": 10},
-    "vip":   {"name": "💎 الماسية", "price": 34.99, "signals_per_day": -1, "ai_per_day": -1, "auto_trading": True,  "full_indicators": True,  "priority_support": True,  "instant_alerts": True, "alerts_max": -1},
-}
-TRIAL_ALERTS_MAX = 1  # عدد تنبيهات السعر المسموح بها لمستخدم التجربة المجانية (غير مشترك)
-
-def _today_str() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d")
-
-def get_user_tier(user):
-    """يرجع 'basic'/'pro'/'vip' لو مشترك مدفوع، أو None لو تجربة مجانية"""
-    if not user or not user.is_vip:
-        return None
-    t = getattr(user, "tier", None)
-    return t if t in TIER_LIMITS else "vip"  # توافق قديم
-
-def tier_display_name(user) -> str:
-    tier = get_user_tier(user)
-    if tier is None:
-        return "🎁 تجربة مجانية"
-    return TIER_LIMITS[tier]["name"]
-
-def get_alert_limit(user) -> int:
-    """عدد تنبيهات السعر النشطة المسموح بها حسب خطة المستخدم. -1 = بلا حدود."""
-    tier = get_user_tier(user)
-    if tier is None:
-        return TRIAL_ALERTS_MAX
-    return TIER_LIMITS[tier]["alerts_max"]
-
-def _reset_daily_usage_if_needed(user, db):
-    today = _today_str()
-    if (user.usage_date or "") != today:
-        user.usage_date = today
-        user.signals_today = 0
-        user.ai_analyses_today = 0
-        db.commit()
-
-def check_signal_quota(user, db):
-    """يرجع (مسموح: bool, رسالة الحد عند الرفض)"""
-    tier = get_user_tier(user)
-    if tier is None:
-        return True, ""  # نظام التجربة المجانية له سقفه الخاص أصلاً
-    _reset_daily_usage_if_needed(user, db)
-    limit = TIER_LIMITS[tier]["signals_per_day"]
-    if limit == -1:
-        return True, ""
-    used = user.signals_today or 0
-    if used >= limit:
-        return False, (
-            f"⛔ *استنفدت إشاراتك اليومية*\n"
-            f"خطتك: {TIER_LIMITS[tier]['name']} — الحد {limit} إشارات/يوم\n\n"
-            f"⬆️ قم بترقية خطتك للحصول على المزيد من الإشارات."
-        )
-    return True, ""
-
-def record_signal_use(user, db):
-    tier = get_user_tier(user)
-    if tier is None:
-        return
-    _reset_daily_usage_if_needed(user, db)
-    user.signals_today = (user.signals_today or 0) + 1
-    db.commit()
-
-def check_ai_quota(user, db):
-    tier = get_user_tier(user)
-    if tier is None:
-        return False, "💎 تحليل الشارت بالذكاء الاصطناعي متاح فقط للمشتركين."
-    _reset_daily_usage_if_needed(user, db)
-    limit = TIER_LIMITS[tier]["ai_per_day"]
-    if limit == 0:
-        return False, (
-            f"⬆️ *تحليل الشارت AI غير متاح في خطتك الحالية*\n"
-            f"خطتك: {TIER_LIMITS[tier]['name']}\n\n"
-            f"قم بالترقية للخطة الذهبية 🥈 أو الماسية 💎 لاستخدام هذه الميزة."
-        )
-    if limit == -1:
-        return True, ""
-    used = user.ai_analyses_today or 0
-    if used >= limit:
-        return False, (
-            f"⛔ *استنفدت تحليلات AI اليومية*\n"
-            f"خطتك: {TIER_LIMITS[tier]['name']} — الحد {limit} تحليلات/يوم\n\n"
-            f"💎 ترقّ للخطة الماسية لتحليل غير محدود."
-        )
-    return True, ""
-
-def record_ai_use(user, db):
-    tier = get_user_tier(user)
-    if tier is None:
-        return
-    _reset_daily_usage_if_needed(user, db)
-    user.ai_analyses_today = (user.ai_analyses_today or 0) + 1
-    db.commit()
-
-# ============================================================
 #  SIGNAL ENGINE
 # ============================================================
 class SignalEngine:
@@ -1211,9 +918,8 @@ class SignalEngine:
             return "buy"
         elif z_score > 1.5:
             return "sell"
-        # عتبة 0.3% لـ 10 شموع × 5 دقائق = 50 دقيقة (كانت 0.1% — مناسبة للتكات لا للشموع)
         trend = (prices[-1] - prices[-10]) / prices[-10] * 100
-        return "buy" if trend > 0.3 else ("sell" if trend < -0.3 else "neutral")
+        return "buy" if trend > 0.1 else ("sell" if trend < -0.1 else "neutral")
 
     def _model_2_mathematical(self, prices: list) -> str:
         if len(prices) < 14:
@@ -1230,133 +936,23 @@ class SignalEngine:
     def _model_3_momentum(self, prices: list) -> str:
         if len(prices) < 10:
             return "neutral"
-        # عتبة 0.5% لـ 10 شموع × 5 دقائق = 50 دقيقة (كانت 0.3% — مناسبة للتكات لا للشموع)
         roc = (prices[-1] - prices[-10]) / prices[-10] * 100
-        if roc > 0.5:
+        if roc > 0.3:
             return "buy"
-        elif roc < -0.5:
+        elif roc < -0.3:
             return "sell"
         return "neutral"
 
-    # ------------------------------------------------------------------ #
-    #  ADX — Average Directional Index (Wilder Smoothing)                #
-    # ------------------------------------------------------------------ #
-    @staticmethod
-    def adx(highs: list, lows: list, closes: list, period: int = 14):
-        """
-        يحسب ADX القياسي مع +DI و -DI باستخدام Wilder Smoothing.
-        يعيد (adx_value, plus_di, minus_di) — كلها أعداد عشرية مدوّرة.
-        """
-        if len(closes) < period + 2:
-            return 0.0, 0.0, 0.0
-
-        h = list(highs)
-        l = list(lows)
-        c = list(closes)
-        n = len(c)
-
-        tr_list, pdm_list, ndm_list = [], [], []
-        for i in range(1, n):
-            tr = max(h[i] - l[i],
-                     abs(h[i] - c[i - 1]),
-                     abs(l[i] - c[i - 1]))
-            up   = h[i] - h[i - 1]
-            down = l[i - 1] - l[i]
-            pdm_list.append(up   if up > down and up > 0 else 0.0)
-            ndm_list.append(down if down > up and down > 0 else 0.0)
-            tr_list.append(tr)
-
-        if len(tr_list) < period:
-            return 0.0, 0.0, 0.0
-
-        # تهيئة Wilder بأول مجموع بسيط
-        atr_s = sum(tr_list[:period])
-        pdm_s = sum(pdm_list[:period])
-        ndm_s = sum(ndm_list[:period])
-
-        dx_list = []
-        for i in range(period, len(tr_list)):
-            atr_s = atr_s - atr_s / period + tr_list[i]
-            pdm_s = pdm_s - pdm_s / period + pdm_list[i]
-            ndm_s = ndm_s - ndm_s / period + ndm_list[i]
-            pdi = 100.0 * pdm_s / atr_s if atr_s else 0.0
-            ndi = 100.0 * ndm_s / atr_s if atr_s else 0.0
-            dsum = pdi + ndi
-            dx   = 100.0 * abs(pdi - ndi) / dsum if dsum else 0.0
-            dx_list.append((dx, pdi, ndi))
-
-        if len(dx_list) < period:
-            last = dx_list[-1] if dx_list else (0.0, 0.0, 0.0)
-            return 0.0, round(last[1], 2), round(last[2], 2)
-
-        # تنعيم DX → ADX
-        adx_val = sum(d[0] for d in dx_list[:period]) / period
-        final_pdi, final_ndi = dx_list[period - 1][1], dx_list[period - 1][2]
-        for i in range(period, len(dx_list)):
-            adx_val   = (adx_val * (period - 1) + dx_list[i][0]) / period
-            final_pdi = dx_list[i][1]
-            final_ndi = dx_list[i][2]
-
-        return round(adx_val, 2), round(final_pdi, 2), round(final_ndi, 2)
-
-    # ------------------------------------------------------------------ #
-    #  Market Structure — Swing Highs/Lows + Trend Classification        #
-    # ------------------------------------------------------------------ #
-    @staticmethod
-    def detect_market_structure(highs: list, lows: list, window: int = 5) -> str:
-        """
-        يكتشف القمم والقيعان المؤكدة (swing highs/lows) بطريقة صحيحة:
-        نقطة أعلى/أدنى من N نقطة على كلا الجانبين.
-        يصنّف الاتجاه: "uptrend" | "downtrend" | "ranging"
-        """
-        if len(highs) < window * 2 + 1:
-            return "ranging"
-
-        swing_highs, swing_lows = [], []
-        for i in range(window, len(highs) - window):
-            window_h = highs[i - window: i + window + 1]
-            window_l = lows[i  - window: i + window + 1]
-            if highs[i] == max(window_h):
-                swing_highs.append(highs[i])
-            if lows[i] == min(window_l):
-                swing_lows.append(lows[i])
-
-        if len(swing_highs) >= 2 and len(swing_lows) >= 2:
-            hh = swing_highs[-1] > swing_highs[-2]   # Higher High
-            hl = swing_lows[-1]  > swing_lows[-2]    # Higher Low
-            lh = swing_highs[-1] < swing_highs[-2]   # Lower High
-            ll = swing_lows[-1]  < swing_lows[-2]    # Lower Low
-            if hh and hl:
-                return "uptrend"
-            if lh and ll:
-                return "downtrend"
-
-        return "ranging"
-
-    # ------------------------------------------------------------------ #
-    #  Model 4 — ADX + Market Structure (يستبدل المنطق المبسّط السابق)  #
-    # ------------------------------------------------------------------ #
-    def _model_4_wave(self, prices: list,
-                      highs: list = None, lows: list = None) -> str:
-        """
-        Buy:     adx_value > 25  و  market_structure == "uptrend"
-        Sell:    adx_value > 25  و  market_structure == "downtrend"
-        Neutral: أي حالة أخرى (سوق عرضي أو اتجاه ضعيف)
-        """
-        if highs is None:
-            highs = prices
-        if lows is None:
-            lows = prices
-        if len(prices) < 30:
+    def _model_4_wave(self, prices: list) -> str:
+        if len(prices) < 20:
             return "neutral"
-
-        adx_val, plus_di, minus_di = self.adx(highs, lows, prices)
-        structure = self.detect_market_structure(highs, lows)
-
-        if adx_val > 25 and structure == "uptrend":
-            return "buy"
-        if adx_val > 25 and structure == "downtrend":
-            return "sell"
+        highs = [max(prices[i:i+3]) for i in range(0, len(prices)-2, 3)]
+        lows = [min(prices[i:i+3]) for i in range(0, len(prices)-2, 3)]
+        if len(highs) >= 3:
+            if highs[-1] > highs[-2] > highs[-3] and lows[-1] > lows[-2]:
+                return "buy"
+            elif highs[-1] < highs[-2] < highs[-3] and lows[-1] < lows[-2]:
+                return "sell"
         return "neutral"
 
     def _model_5_seasonal(self, prices: list) -> str:
@@ -1364,11 +960,9 @@ class SignalEngine:
         current = prices[-1] if prices else 0
         avg_recent = sum(prices[-5:]) / 5 if len(prices) >= 5 else current
         session_multiplier = 1.2 if 7 <= hour <= 17 else 0.8
-        # عتبة 0.2% لـ avg_recent (متوسط آخر 5 شموع = 25 دقيقة)
-        # كانت 0.05% — حساسة جداً للتكات اللحظية، تطلق إشارات مستمرة مع شموع 5 دقائق
-        if current > avg_recent * 1.002 * session_multiplier:
+        if current > avg_recent * 1.0005 * session_multiplier:
             return "buy"
-        elif current < avg_recent * 0.998 / session_multiplier:
+        elif current < avg_recent * 0.9995 / session_multiplier:
             return "sell"
         return "neutral"
 
@@ -1398,7 +992,7 @@ class SignalEngine:
             self._model_1_statistical(prices),
             self._model_2_mathematical(prices),
             self._model_3_momentum(prices),
-            self._model_4_wave(prices, highs, lows),
+            self._model_4_wave(prices),
             self._model_5_seasonal(prices),
             self._model_6_probabilistic(prices),
         ]
@@ -1506,84 +1100,6 @@ signal_engine = SignalEngine()
 
 
 # ============================================================
-#  TEST — ADX + Market Structure (يُشغَّل عند بدء الكود مرة واحدة)
-# ============================================================
-def _test_adx_and_structure() -> None:
-    """
-    اختبارات الصحة لـ adx() و detect_market_structure():
-    T1 — zigzag صاعد  (HH+HL)            → ADX>25، uptrend،   buy
-    T2 — zigzag هابط  (LH+LL)            → ADX>25، downtrend، sell
-    T3 — بيانات غير كافية (< period+2)   → لا crash، يعيد (0,0,0) / ranging
-    T4 — سعر ثابت (ATR=0)                → لا crash، لا قسمة على صفر
-    T5 — ضوضاء واقعية (gaussian + drift) → لا crash، نتيجة صالحة
-    """
-    n     = 80
-    drift = 3.0
-    amp   = 12.0
-    eng   = SignalEngine.__new__(SignalEngine)   # بدون __init__ لتجنّب التبعيات
-
-    # -------- T1: zigzag صاعد --------
-    c1 = [1000.0 + i*drift + amp*math.sin(i*math.pi/8) for i in range(n)]
-    h1 = [c+5.0 for c in c1];  l1 = [c-5.0 for c in c1]
-    adx1, pdi1, ndi1 = eng.adx(h1, l1, c1)
-    s1 = eng.detect_market_structure(h1, l1)
-    g1 = eng._model_4_wave(c1, h1, l1)
-    assert adx1 > 25,        f"[FAIL T1] ADX={adx1} (يجب > 25)"
-    assert pdi1 > ndi1,      f"[FAIL T1] +DI={pdi1} <= -DI={ndi1}"
-    assert s1 == "uptrend",  f"[FAIL T1] structure={s1}"
-    assert g1 == "buy",      f"[FAIL T1] signal={g1}"
-
-    # -------- T2: zigzag هابط --------
-    c2 = [2000.0 - i*drift + amp*math.sin(i*math.pi/8) for i in range(n)]
-    h2 = [c+5.0 for c in c2];  l2 = [c-5.0 for c in c2]
-    adx2, pdi2, ndi2 = eng.adx(h2, l2, c2)
-    s2 = eng.detect_market_structure(h2, l2)
-    g2 = eng._model_4_wave(c2, h2, l2)
-    assert adx2 > 25,           f"[FAIL T2] ADX={adx2}"
-    assert ndi2 > pdi2,         f"[FAIL T2] -DI={ndi2} <= +DI={pdi2}"
-    assert s2 == "downtrend",   f"[FAIL T2] structure={s2}"
-    assert g2 == "sell",        f"[FAIL T2] signal={g2}"
-
-    # -------- T3: بيانات غير كافية (< period+2 = 16 نقطة) --------
-    short = [1000.0] * 10
-    adx3, pdi3, ndi3 = eng.adx(short, short, short)
-    s3 = eng.detect_market_structure(short, short)
-    assert (adx3, pdi3, ndi3) == (0.0, 0.0, 0.0), \
-        f"[FAIL T3] يجب (0,0,0) للبيانات القصيرة، حصلنا: {(adx3, pdi3, ndi3)}"
-    assert s3 == "ranging", f"[FAIL T3] structure={s3} (يجب ranging)"
-
-    # -------- T4: سعر ثابت — ATR=0 ← يختبر حماية القسمة على صفر --------
-    flat = [1500.0] * 60
-    adx4, pdi4, ndi4 = eng.adx(flat, flat, flat)
-    assert isinstance(adx4, float), f"[FAIL T4] يجب float، حصلنا {type(adx4)}"
-    assert adx4 >= 0.0,             f"[FAIL T4] ADX سالب: {adx4}"
-
-    # -------- T5: ضوضاء واقعية (gaussian + drift خفيف) --------
-    import random as _rnd
-    _rnd.seed(42)
-    c5 = [1000.0 + i*1.5 + _rnd.gauss(0, 8) for i in range(n)]
-    h5 = [c + abs(_rnd.gauss(0, 3)) for c in c5]
-    l5 = [c - abs(_rnd.gauss(0, 3)) for c in c5]
-    h5 = [max(h5[i], c5[i]) for i in range(n)]   # ضمان high >= close
-    l5 = [min(l5[i], c5[i]) for i in range(n)]   # ضمان low  <= close
-    adx5, pdi5, ndi5 = eng.adx(h5, l5, c5)
-    s5 = eng.detect_market_structure(h5, l5)
-    assert isinstance(adx5, float) and adx5 >= 0, \
-        f"[FAIL T5] ADX غير صالح: {adx5}"
-    assert s5 in ("uptrend", "downtrend", "ranging"), \
-        f"[FAIL T5] structure غير صالح: {s5}"
-
-    print(f"[TEST ✅] T1 Uptrend:         ADX={adx1}  +DI={pdi1}  -DI={ndi1}  struct={s1}  sig={g1}")
-    print(f"[TEST ✅] T2 Downtrend:       ADX={adx2}  +DI={pdi2}  -DI={ndi2}  struct={s2}  sig={g2}")
-    print(f"[TEST ✅] T3 Short data:      ADX={adx3}  struct={s3}  (no crash)")
-    print(f"[TEST ✅] T4 Flat/zero-ATR:   ADX={adx4}  (no div-by-zero)")
-    print(f"[TEST ✅] T5 Noisy realistic:  ADX={adx5}  struct={s5}  (no crash)")
-
-
-_test_adx_and_structure()
-
-
-# ============================================================
 #  SENTIMENT ANALYSIS (VADER - Termux safe)
 # ============================================================
 try:
@@ -1620,7 +1136,7 @@ logger.info(f"VADER={'OK' if _VADER_OK else 'missing (pip install vaderSentiment
 DIRECTION_EMOJI = {"BUY": "🟢 شراء", "SELL": "🔴 بيع"}
 CONFIDENCE_BAR = lambda c: "🔥" * int(c // 20) + "⚡" * (5 - int(c // 20))
 
-def format_signal(sig: dict, tier: str = "vip") -> str:
+def format_signal(sig: dict) -> str:
     direction_ar = DIRECTION_EMOJI.get(sig["direction"], sig["direction"])
     bar = CONFIDENCE_BAR(sig["confidence"])
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -1628,57 +1144,30 @@ def format_signal(sig: dict, tier: str = "vip") -> str:
     pair_sym = PAIR_CFG['symbol']
     cur = PAIR_CFG['currency']
     dec = PAIR_CFG['decimals']
-    limits = TIER_LIMITS.get(tier, TIER_LIMITS["vip"])
-    full = limits["full_indicators"]
-    tier_label = limits["name"] if tier in TIER_LIMITS else TIER_LIMITS["vip"]["name"]
-
-    # 🥉 الفضية: دخول + TP1 + وقف الخسارة فقط | 🥈/💎: TP1+TP2+TP3 كاملة
-    if full:
-        targets_block = (
-            f"🎯 **الهدف الأول (TP1):** {cur}{sig['tp1']:,.{dec}f}\n"
-            f"🎯 **الهدف الثاني (TP2):** {cur}{sig['tp2']:,.{dec}f}\n"
-            f"🏆 **الهدف الثالث (TP3):** {cur}{sig['tp3']:,.{dec}f}\n"
-            f"🛑 **وقف الخسارة (SL):** {cur}{sig['sl']:,.{dec}f}\n"
-            f"📊 **نسبة المكسب/الخسارة:** {sig['rr_ratio']}:1"
-        )
-    else:
-        targets_block = (
-            f"🎯 **الهدف (TP1):** {cur}{sig['tp1']:,.{dec}f}\n"
-            f"🛑 **وقف الخسارة (SL):** {cur}{sig['sl']:,.{dec}f}"
-        )
-
-    # 🥉 الفضية: RSI+MACD فقط | 🥈/💎: كل الـ12 مؤشر
-    if full:
-        indicators_block = (
-            "🧠 **تحليل المحرك الذكي:**\n"
-            f"• RSI: {sig['rsi']} {'(تشبع بيعي 📉)' if sig['rsi'] < 35 else '(تشبع شرائي 📈)' if sig['rsi'] > 65 else '(متوازن ⚖️)'}\n"
-            f"• MACD: {sig['macd_signal'].upper()}\n"
-            f"• Bollinger: {sig['bb_signal'].upper()}\n"
-            f"• Stochastic: {sig['stoch_k']}\n"
-            f"• ATR: {sig['atr']}\n\n"
-            "🔢 **التأكيد المتعدد المصادر:**\n"
-            f"• نماذج تحليلية: {sig['models_confirmed']}/6 ✅\n"
-            f"• مؤشرات فنية: {sig['indicators_confirmed']}/6 ✅\n"
-            f"• **نسبة الثقة:** {sig['confidence']}% {bar}\n\n"
-            f"📍 **دعم:** ${sig['support']:,.2f} | **مقاومة:** ${sig['resistance']:,.2f}"
-        )
-    else:
-        indicators_block = (
-            "🧠 **تحليل المحرك الذكي:**\n"
-            f"• RSI: {sig['rsi']} {'(تشبع بيعي 📉)' if sig['rsi'] < 35 else '(تشبع شرائي 📈)' if sig['rsi'] > 65 else '(متوازن ⚖️)'}\n"
-            f"• MACD: {sig['macd_signal'].upper()}\n\n"
-            f"• **نسبة الثقة:** {sig['confidence']}% {bar}\n\n"
-            "⬆️ *ترقّ للخطة الذهبية أو الماسية لعرض جميع الـ12 مؤشر ونطاقات الدعم/المقاومة*"
-        )
-
-    text = f"""⚡ **إشارة تداول {tier_label} | {pair_sym}**
+    text = f"""⚡ **إشارة تداول VIP | {pair_sym}**
 ━━━━━━━━━━━━━━━━━━━━━━━━
 📌 **الاتجاه:** {direction_ar}
 💰 **سعر الدخول:** {cur}{sig['entry']:,.{dec}f}
-{targets_block}
+🎯 **الهدف الأول (TP1):** {cur}{sig['tp1']:,.{dec}f}
+🎯 **الهدف الثاني (TP2):** {cur}{sig['tp2']:,.{dec}f}
+🏆 **الهدف الثالث (TP3):** {cur}{sig['tp3']:,.{dec}f}
+🛑 **وقف الخسارة (SL):** {cur}{sig['sl']:,.{dec}f}
+📊 **نسبة المكسب/الخسارة:** {sig['rr_ratio']}:1
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
-{indicators_block}
+🧠 **تحليل المحرك الذكي:**
+• RSI: {sig['rsi']} {'(تشبع بيعي 📉)' if sig['rsi'] < 35 else '(تشبع شرائي 📈)' if sig['rsi'] > 65 else '(متوازن ⚖️)'}
+• MACD: {sig['macd_signal'].upper()}
+• Bollinger: {sig['bb_signal'].upper()}
+• Stochastic: {sig['stoch_k']}
+• ATR: {sig['atr']}
+
+🔢 **التأكيد المتعدد المصادر:**
+• نماذج تحليلية: {sig['models_confirmed']}/6 ✅
+• مؤشرات فنية: {sig['indicators_confirmed']}/6 ✅
+• **نسبة الثقة:** {sig['confidence']}% {bar}
+
+📍 **دعم:** ${sig['support']:,.2f} | **مقاومة:** ${sig['resistance']:,.2f}
 🕐 **الجلسة:** {sig['session']}
 ⏰ {now}
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1698,46 +1187,57 @@ def main_menu():
         [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
          InlineKeyboardButton("🎓 مكتبة الكورسات", callback_data="courses_main")],
         [InlineKeyboardButton("🏆 نتائج التوصيات", callback_data="results_menu")],
-        [InlineKeyboardButton("🌐 زيارة الموقع", url=get_website_url()),
+        [InlineKeyboardButton("🌐 زيارة الموقع", url=WEBSITE_URL),
          InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
         [InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def vip_menu(show_plans: bool = False):
-    """قائمة كاملة بكل الميزات.
-    show_plans=True يضيف زر 'خطط الاشتراك' — يُستخدم فقط للمستخدمين غير المشتركين
-    (تجربة/منتهية)، ويُخفى عن مستخدمي VIP (المشتركين فعلاً) لأنهم لا يحتاجونه."""
+def vip_menu():
+    """قائمة لأعضاء VIP — ميزات كاملة"""
     keyboard = [
         [InlineKeyboardButton("⚡ إشارة تداول الآن", callback_data="get_signal"),
          InlineKeyboardButton(f"💰 سعر {PAIR_CFG['display_name']} المباشر", callback_data="live_gold")],
         [InlineKeyboardButton("📊 تحليل استراتيجيتي", callback_data="strategy_analysis"),
          InlineKeyboardButton("🧠 تحليل شارت بالذكاء الاصطناعي", callback_data="analyze_chart")],
         [InlineKeyboardButton("🤖 تداول آلي Auto Trading 🤖", callback_data="auto_trading_menu")],
-    ]
-    if show_plans:
-        keyboard.append([InlineKeyboardButton("🎯 خطط الاشتراك والأسعار", callback_data="plans")])
-    keyboard += [
         [InlineKeyboardButton("🔔 تنبيه سعر", callback_data="set_alert"),
          InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer")],
         [InlineKeyboardButton(f"📰 أخبار {PAIR_CFG['display_name']}", callback_data="gold_news"),
          InlineKeyboardButton("🏆 نتائج التوصيات", callback_data="results_menu")],
         [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
          InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
-        [InlineKeyboardButton("🌐 زيارة الموقع", url=get_website_url()),
+        [InlineKeyboardButton("🌐 زيارة الموقع", url=WEBSITE_URL),
          InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def trial_menu():
-    """قائمة لمستخدمي التجربة المجانية — نفس ميزات VIP كاملة + زر خطط الاشتراك
-    (المعاينة/الحدود تُطبّق عند الاستخدام الفعلي)"""
-    return vip_menu(show_plans=True)
+    """قائمة لمستخدمي التجربة المجانية"""
+    keyboard = [
+        [InlineKeyboardButton("⚡ إشارة تداول (تجربة)", callback_data="get_signal"),
+         InlineKeyboardButton(f"💰 سعر {PAIR_CFG['display_name']} المباشر", callback_data="live_gold")],
+        [InlineKeyboardButton("💎 اشترك VIP — إشارات كاملة", callback_data="plans")],
+        [InlineKeyboardButton("🔔 تنبيه سعر", callback_data="set_alert"),
+         InlineKeyboardButton("⏰ مؤقت الجلسات", callback_data="session_timer")],
+        [InlineKeyboardButton(f"📰 أخبار {PAIR_CFG['display_name']}", callback_data="gold_news"),
+         InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods")],
+        [InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK),
+         InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 def expired_menu():
-    """قائمة لمنتهي التجربة — نفس ميزات VIP كاملة + زر خطط الاشتراك
-    (المعاينة/الحدود تُطبّق عند الاستخدام الفعلي)"""
-    return vip_menu(show_plans=True)
+    """قائمة لمنتهي التجربة"""
+    keyboard = [
+        [InlineKeyboardButton("💎 اشترك VIP الآن 🔥", callback_data="plans")],
+        [InlineKeyboardButton("💳 طرق الدفع", callback_data="payment_methods"),
+         InlineKeyboardButton(f"💰 سعر {PAIR_CFG['display_name']} المباشر", callback_data="live_gold")],
+        [InlineKeyboardButton("👤 حسابي", callback_data="my_account"),
+         InlineKeyboardButton("📞 الدعم المباشر", url=WHATSAPP_LINK)],
+        [InlineKeyboardButton("ℹ️ عن النظام", callback_data="about")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 
 def back_menu():
@@ -1851,19 +1351,6 @@ def _at_kb(acc):
 async def handle_auto_trading_menu(query, user_id):
     db = SessionLocal()
     try:
-        user = db.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
-        tier = get_user_tier(user)
-        if not tier or not TIER_LIMITS[tier]["auto_trading"]:
-            markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("💎 ترقية للماسية", callback_data="plan_vip")],
-                [InlineKeyboardButton("🔙 العودة", callback_data="start")]
-            ])
-            await query.edit_message_text(
-                "🔒 *التداول الآلي حصري لمشتركي الخطة الماسية 💎*\n\n"
-                "قم بالترقية للاستفادة من تنفيذ الصفقات تلقائياً 24/7.",
-                reply_markup=markup, parse_mode="Markdown"
-            )
-            return
         acc = _get_at_acc(db, user_id)
         await query.edit_message_text(_at_text(acc), reply_markup=_at_kb(acc), parse_mode="Markdown")
     finally:
@@ -2054,40 +1541,16 @@ ALERT_PRICE = 210
 async def alert_entry(update, context):
     query = update.callback_query
     await query.answer()
-    uid = str(query.from_user.id)
     db = SessionLocal()
-    user = db.query(TradingUser).filter(TradingUser.tg_id == uid).first()
+    uid = str(query.from_user.id)
     alerts = db.query(GoldAlert).filter(GoldAlert.tg_id == uid, GoldAlert.is_active == True).all()
     db.close()
-
-    limit = get_alert_limit(user)
-    used = len(alerts)
-    limit_text = "بلا حدود ♾️" if limit == -1 else (str(used) + "/" + str(limit))
-
     alerts_text = ""
     if alerts:
-        alerts_text = "\n\n📋 *تنبيهاتك الحالية (" + limit_text + "):*\n"
+        alerts_text = "\n\n📋 *تنبيهاتك الحالية:*\n"
         for a in alerts:
             d = "↑ فوق" if a.direction == "above" else "↓ تحت"
             alerts_text += "• " + d + " $" + str(a.target_price) + "\n"
-    else:
-        alerts_text = "\n\n📊 خطتك: " + tier_display_name(user) + " — الحد " + limit_text + "\n"
-
-    if limit != -1 and used >= limit:
-        await query.edit_message_text(
-            "⛔ *استنفدت حد تنبيهات السعر*\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "خطتك (" + tier_display_name(user) + ") تسمح بـ " + str(limit) + " تنبيه نشط كحد أقصى.\n"
-            + alerts_text +
-            "\n⬆️ قم بترقية خطتك لزيادة عدد التنبيهات، أو ألغِ تنبيهاً حالياً عبر /alerts_clear.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬆️ ترقية الخطة", callback_data="plans")],
-                [InlineKeyboardButton("🔙 العودة", callback_data="start")],
-            ]),
-            parse_mode="Markdown"
-        )
-        return _CH2.END
-
     await query.edit_message_text(
         "🔔 *تنبيهات سعر " + PAIR_CFG['display_name'] + "*\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -2107,23 +1570,11 @@ async def alert_recv_price(update, context):
         await update.message.reply_text("❌ سعر غير صحيح. أدخل رقماً صحيحاً لـ " + PAIR_CFG['display_name'])
         return ALERT_PRICE
     uid = str(update.effective_user.id)
-
-    db = SessionLocal()
-    user = db.query(TradingUser).filter(TradingUser.tg_id == uid).first()
-    limit = get_alert_limit(user)
-    active_count = db.query(GoldAlert).filter(GoldAlert.tg_id == uid, GoldAlert.is_active == True).count()
-    if limit != -1 and active_count >= limit:
-        db.close()
-        await update.message.reply_text(
-            "⛔ استنفدت حد تنبيهات السعر (" + str(limit) + ") في خطتك (" + tier_display_name(user) + ").\n"
-            "قم بترقية خطتك أو ألغِ تنبيهاً حالياً عبر /alerts_clear."
-        )
-        return _CH2.END
-
     if not finnhub_ws.is_data_fresh():
-        await asyncio.to_thread(gold_manager.update)
+        gold_manager.update()
     current = gold_manager.current_price or 0
     direction = "above" if price > current else "below"
+    db = SessionLocal()
     db.add(GoldAlert(tg_id=uid, target_price=price, direction=direction))
     db.commit()
     db.close()
@@ -2165,7 +1616,7 @@ async def check_gold_alerts(context):
         if finnhub_ws.is_data_fresh():
             current = gold_manager.current_price
         else:
-            await asyncio.to_thread(gold_manager.update)
+            gold_manager.update()
             current = gold_manager.current_price
         if not current or current <= 0:
             return
@@ -2180,15 +1631,6 @@ async def check_gold_alerts(context):
                 a.is_active = False
         db.commit()
         db.close()
-        # لقطة فنية سريعة تُرفَق مع كل إشعار (بدون أي طلب HTTP إضافي — من البيانات المخزّنة مسبقاً)
-        prices = list(gold_manager.price_history)
-        rsi = TechnicalAnalysis.rsi(prices) if len(prices) >= 5 else None
-        rsi_line = ""
-        if rsi:
-            rsi_state = "🔴 تشبع شرائي" if rsi > 65 else "🟢 تشبع بيعي" if rsi < 35 else "⚪ محايد"
-            rsi_line = "📐 RSI: `" + str(rsi) + "` " + rsi_state + "\n"
-        session_line = "🌍 الجلسة: " + gold_manager._get_trading_session() + "\n"
-
         for a in triggered:
             try:
                 d_text = "ارتفع فوق" if a.direction == "above" else "انخفض تحت"
@@ -2199,14 +1641,9 @@ async def check_gold_alerts(context):
                         "━━━━━━━━━━━━━━━━━━━━━━━━\n"
                         "⚡ وصل السعر للمستوى المحدد!\n\n"
                         "🎯 هدفك: $" + str(a.target_price) + "\n"
-                        "💰 السعر الحالي: $" + str(round(current, 2)) + "\n"
-                        + rsi_line + session_line +
-                        "\n📌 السعر " + d_text + " $" + str(a.target_price)
+                        "💰 السعر الحالي: $" + str(round(current, 2)) + "\n\n"
+                        "📌 السعر " + d_text + " $" + str(a.target_price)
                     ),
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⚡ اطلب إشارة الآن", callback_data="get_signal")],
-                        [InlineKeyboardButton("🔔 تنبيه جديد", callback_data="set_alert")],
-                    ]),
                     parse_mode="Markdown"
                 )
             except Exception:
@@ -2218,7 +1655,7 @@ async def check_gold_alerts(context):
 async def daily_morning_summary(context):
     """ملخص يومي للـ VIP كل صباح"""
     try:
-        await asyncio.to_thread(gold_manager.update)
+        gold_manager.update()
         price = gold_manager.price or 0
         session = gold_manager.session or "London"
         data = gold_manager.get_market_data() or {}
@@ -2388,45 +1825,12 @@ async def handle_session_timer(query):
 
 
 # ============================================================
-#  GOLD NEWS — Finnhub API (مصدر رسمي بمفتاح) أولاً، RSS كبديل، مع كاش
+#  GOLD NEWS (RSS - free)
 # ============================================================
 import urllib.request as _ur
 import re as _re
 
-_NEWS_CACHE = {"ts": 0.0, "items": [], "source": ""}
-_NEWS_CACHE_TTL = 1800  # 30 دقيقة — يقلل عدد الطلبات ويحمي من حدود Finnhub المجانية
-
-_NEWS_KEYWORDS = ("gold", "xau", "precious metal", "bullion", "fed", "interest rate",
-                  "inflation", "dollar", "fomc", "safe haven")
-
-
-def _fetch_gold_news_finnhub():
-    """المصدر الأساسي: Finnhub News API (نفس مفاتيح Finnhub المستخدمة لـ WebSocket السعر).
-    وثائق: https://finnhub.io/docs/api/market-news"""
-    for key in FINNHUB_KEYS:
-        try:
-            url = "https://finnhub.io/api/v1/news?category=general&token=" + key
-            req = _ur.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with _ur.urlopen(req, timeout=6) as resp:
-                raw = json.loads(resp.read().decode("utf-8", errors="ignore"))
-            results = []
-            for item in raw:
-                headline = (item.get("headline") or "").strip()
-                if not headline:
-                    continue
-                low = headline.lower()
-                if any(kw in low for kw in _NEWS_KEYWORDS):
-                    results.append({"title": headline, "source": item.get("source") or "Finnhub", "url": item.get("url") or ""})
-            if results:
-                return results[:5]
-        except Exception as e:
-            logger.warning("Finnhub news key ..." + key[-6:] + " فشل: " + str(e))
-            continue
-    return []
-
-
-def _fetch_gold_news_rss():
-    """مصدر احتياطي إذا فشلت Finnhub News API."""
+def fetch_gold_news():
     try:
         feeds = [
             "https://feeds.finance.yahoo.com/rss/2.0/headline?s=GC%3DF&region=US&lang=en-US",
@@ -2441,8 +1845,8 @@ def _fetch_gold_news_rss():
                 results = []
                 for t1, t2 in titles:
                     title = (t1 or t2).strip()
-                    if title and ("gold" in title.lower() or "xau" in title.lower() or "metal" in title.lower()):
-                        results.append({"title": title, "source": "Yahoo/Kitco RSS", "url": ""})
+                    if title and "gold" in title.lower() or "xau" in title.lower() or "metal" in title.lower():
+                        results.append(title)
                 if results:
                     return results[:5]
             except Exception:
@@ -2451,39 +1855,17 @@ def _fetch_gold_news_rss():
     except Exception:
         return []
 
-
-def fetch_gold_news():
-    """يجلب الأخبار مع كاش 30 دقيقة: Finnhub API (رسمي، بمفتاح) أولاً، ثم RSS كبديل.
-    ملاحظة: هذه الدالة تنفّذ طلبات HTTP متزامنة — يجب استدعاؤها فقط عبر
-    asyncio.to_thread من داخل أي async def (كما في handle_gold_news) لتجنّب تجميد event loop."""
-    now = time.time()
-    if _NEWS_CACHE["items"] and (now - _NEWS_CACHE["ts"]) < _NEWS_CACHE_TTL:
-        return _NEWS_CACHE["items"], _NEWS_CACHE["source"]
-
-    news = _fetch_gold_news_finnhub()
-    source = "Finnhub News API"
-    if not news:
-        news = _fetch_gold_news_rss()
-        source = "Yahoo Finance / Kitco RSS"
-
-    if news:
-        _NEWS_CACHE["ts"] = now
-        _NEWS_CACHE["items"] = news
-        _NEWS_CACHE["source"] = source
-    return news, source
-
-
 async def handle_gold_news(query):
     await query.edit_message_text("📰 جاري جلب آخر أخبار " + PAIR_CFG['display_name'] + "...", parse_mode="Markdown")
-    news, source = await asyncio.to_thread(fetch_gold_news)
+    news = fetch_gold_news()
     if news:
         text = "📰 *آخر أخبار " + PAIR_CFG['display_name'] + "*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
         for i, n in enumerate(news, 1):
-            text += str(i) + ". " + n["title"][:120] + "\n\n"
-        text += "━━━━━━━━━━━━━━━━━━━━━━━━\n🔄 يتجدد كل 30 دقيقة | المصدر: " + source
+            text += str(i) + ". " + n[:100] + "\n\n"
+        text += "━━━━━━━━━━━━━━━━━━━━━━━━\n🔄 يتجدد كل ساعة | المصدر: Yahoo Finance / Kitco"
     else:
         text = ("📰 *آخر أخبار " + PAIR_CFG['display_name'] + "*\n━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "⚠️ تعذّر جلب الأخبار حالياً من أي مصدر\n\n"
+                "⚠️ تعذّر جلب الأخبار حالياً\n\n"
                 "📌 *أبرز المستجدات اليوم:*\n"
                 "• " + PAIR_CFG['display_name'] + " يتداول قرب مستويات مهمة\n"
                 "• ترقّب بيانات التضخم الأمريكية\n"
@@ -2491,8 +1873,7 @@ async def handle_gold_news(query):
     await query.edit_message_text(
         text,
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 تحديث الأخبار", callback_data="gold_news"),
-             InlineKeyboardButton("⚡ إشارة الآن", callback_data="get_signal")],
+            [InlineKeyboardButton("⚡ إشارة الآن", callback_data="get_signal")],
             [InlineKeyboardButton("🔙 القائمة", callback_data="start")],
         ]),
         parse_mode="Markdown"
@@ -2554,7 +1935,7 @@ async def cmd_points(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============================================================
 async def evening_market_summary(context):
     try:
-        await asyncio.to_thread(gold_manager.update)
+        gold_manager.update()
         price = gold_manager.price or 0
         data = gold_manager.get_market_data() or {}
         prices = data.get("prices", [])
@@ -2650,7 +2031,7 @@ async def handle_admin_dashboard(query, user_id):
     total_pts = db.query(TradingUser).all()
     pts_sum = sum((u.loyalty_points or 0) for u in total_pts)
     db.close()
-    await asyncio.to_thread(gold_manager.update)
+    gold_manager.update()
     price = gold_manager.price or 0
     session = gold_manager.session or "—"
     await query.edit_message_text(
@@ -2729,7 +2110,7 @@ async def check_trade_signals(context):
               src   = "WebSocket"
           else:
               # WS غير نشط أو بياناته قديمة — استدعاء HTTP كـ fallback فقط
-              await asyncio.to_thread(gold_manager.update)
+              gold_manager.update()
               price = gold_manager.current_price
               src   = "HTTP/Yahoo"
           if not price or price <= 0:
@@ -2961,7 +2342,7 @@ async def handle_live_gold(query):
         (datetime.utcnow() - gold_manager.last_update).total_seconds() < 600
     )
     if not price_fresh:
-        await asyncio.to_thread(gold_manager.update)
+        gold_manager.update()
     price = gold_manager.current_price
     session = gold_manager._get_trading_session()
 
@@ -3082,29 +2463,15 @@ async def handle_get_signal(query, user_id):
     db = SessionLocal()
     user = db.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
     is_vip = is_trial_active(user)
-
-    if is_vip and user:
-        _allowed, _quota_msg = check_signal_quota(user, db)
-        if not _allowed:
-            db.close()
-            markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬆️ ترقية الخطة", callback_data="plans")],
-                [InlineKeyboardButton("🔙 العودة", callback_data="start")]
-            ])
-            await query.edit_message_text(_quota_msg, reply_markup=markup, parse_mode="Markdown")
-            return
-
     if user:
         user.signals_requested = (user.signals_requested or 0) + 1
         user.loyalty_points = (user.loyalty_points or 0) + 5
-        if is_vip:
-            record_signal_use(user, db)
         db.commit()
     db.close()
 
     # WS أولاً — لا نلوث السعر بـ Yahoo Finance إلا إذا WS قديم
     if not finnhub_ws.is_data_fresh():
-        await asyncio.to_thread(gold_manager.update)
+        gold_manager.update()
 
     if not is_vip:
         demo = _generate_demo_signal()
@@ -3212,7 +2579,7 @@ async def handle_get_signal(query, user_id):
     db.commit()
     db.close()
 
-    text = format_signal(signal, tier=get_user_tier(user) or "basic")
+    text = format_signal(signal)
     await query.edit_message_text(text, reply_markup=back_menu(), parse_mode="Markdown")
     # تتبع الإشارة
     try:
@@ -3238,18 +2605,6 @@ async def handle_chart_analysis(query, user_id):
     db = SessionLocal()
     user = db.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
     is_vip = is_trial_active(user)
-
-    if is_vip and user:
-        _allowed, _quota_msg = check_ai_quota(user, db)
-        if not _allowed:
-            db.close()
-            markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬆️ ترقية الخطة", callback_data="plans")],
-                [InlineKeyboardButton("🔙 العودة", callback_data="start")]
-            ])
-            await query.edit_message_text(_quota_msg, reply_markup=markup, parse_mode="Markdown")
-            return
-        record_ai_use(user, db)
     db.close()
 
     if not is_vip:
@@ -3288,12 +2643,11 @@ async def handle_chart_analysis(query, user_id):
     )
 
 
-async def handle_strategy_analysis(query, user_id, context: ContextTypes.DEFAULT_TYPE):
-    """تحليل استراتيجية المستخدم بالذكاء الاصطناعي.
-    يفعّل علم انتظار (awaiting_strategy) في user_data — أي رسالة نصية عادية (بدون /)
-    يرسلها المستخدم بعد هذه الشاشة تُعتبر تلقائياً وصف استراتيجيته وتُحلَّل مباشرة
-    (يُعالَجها handle_free_text_message)."""
-    context.user_data["awaiting_strategy"] = True
+async def handle_strategy_analysis(query, user_id):
+    """تحليل استراتيجية المستخدم بالذكاء الاصطناعي"""
+    db = SessionLocal()
+    user = db.query(TradingUser).filter(TradingUser.tg_id == str(user_id)).first()
+    db.close()
 
     msg = """📊 *تحليل استراتيجيتك التداولية*
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3306,20 +2660,35 @@ async def handle_strategy_analysis(query, user_id, context: ContextTypes.DEFAULT
 💡 *توصيات التطوير* — كيف تطور استراتيجيتك
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
-📝 *اكتب الآن وصف استراتيجيتك في رسالة عادية* (بدون أي علامة / في البداية) وسيُحلّلها النظام تلقائياً.
+📝 *اكتب /strategy متبوعاً بوصف استراتيجيتك*
 
 *مثال:*
-`أستخدم RSI للدخول عند 30، وأخرج عند 70، مع مستوى وقف خسارة 50 نقطة`"""
+`/strategy أستخدم RSI للدخول عند 30، وأخرج عند 70، مع مستوى وقف خسارة 50 نقطة`"""
 
     markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📝 أرسل /strategy [وصف استراتيجيتك]", callback_data="strategy_help")],
         [InlineKeyboardButton("🔙 العودة", callback_data="start")]
     ])
     await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
 
 
-async def _run_strategy_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE, strategy_text: str):
-    """المنطق المشترك لتحليل الاستراتيجية بالذكاء الاصطناعي — يُستخدم من /strategy
-    ومن الرسالة النصية العادية بعد الضغط على زر 'تحليل استراتيجيتي'."""
+async def cmd_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """أمر /strategy — تحليل استراتيجية المستخدم"""
+    if not context.args:
+        await update.message.reply_text(
+            "📊 *تحليل الاستراتيجية*\n\n"
+            "استخدم: `/strategy [وصف استراتيجيتك]`\n\n"
+            "*مثال:*\n"
+            "`/strategy أستخدم RSI عند 30/70 مع Bollinger Bands للتأكيد، وأدخل عند كسر المستوى مع حجم تداول مرتفع`",
+            parse_mode="Markdown"
+        )
+        return
+
+    strategy_text = " ".join(context.args)
+    if len(strategy_text) < 20:
+        await update.message.reply_text("❌ يرجى كتابة وصف أكثر تفصيلاً لاستراتيجيتك (على الأقل 20 حرف).")
+        return
+
     thinking_msg = await update.message.reply_text(
         "🔄 *جاري تحليل استراتيجيتك بالذكاء الاصطناعي...*\n⏳ انتظر لحظة...",
         parse_mode="Markdown"
@@ -3366,45 +2735,6 @@ async def _run_strategy_analysis(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as e:
         logger.error(f"Strategy analysis error: {e}")
         await thinking_msg.edit_text("❌ حدث خطأ أثناء التحليل. حاول لاحقاً.")
-
-
-async def cmd_strategy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /strategy — تحليل استراتيجية المستخدم (لا يزال يعمل لمن يفضّل الأمر مباشرة)"""
-    if not context.args:
-        await update.message.reply_text(
-            "📊 *تحليل الاستراتيجية*\n\n"
-            "استخدم: `/strategy [وصف استراتيجيتك]`\n"
-            "أو اضغط زر 📊 تحليل استراتيجيتي من القائمة الرئيسية واكتب استراتيجيتك مباشرة كرسالة عادية.\n\n"
-            "*مثال:*\n"
-            "`/strategy أستخدم RSI عند 30/70 مع Bollinger Bands للتأكيد، وأدخل عند كسر المستوى مع حجم تداول مرتفع`",
-            parse_mode="Markdown"
-        )
-        return
-
-    strategy_text = " ".join(context.args)
-    if len(strategy_text) < 20:
-        await update.message.reply_text("❌ يرجى كتابة وصف أكثر تفصيلاً لاستراتيجيتك (على الأقل 20 حرف).")
-        return
-
-    await _run_strategy_analysis(update, context, strategy_text)
-
-
-async def handle_free_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """يعالج أي رسالة نصية عادية (بدون أمر /) ليس لها معالج آخر.
-    الاستخدام الحالي الوحيد: استقبال وصف استراتيجية المستخدم بعد الضغط على
-    زر 'تحليل استراتيجيتي' (بدون الحاجة لكتابة /strategy)."""
-    if not context.user_data.get("awaiting_strategy"):
-        return  # لا يوجد انتظار نشط لهذا المستخدم — تجاهل الرسالة كما كان الحال دائماً
-
-    strategy_text = (update.message.text or "").strip()
-    if len(strategy_text) < 20:
-        await update.message.reply_text(
-            "❌ يرجى كتابة وصف أكثر تفصيلاً لاستراتيجيتك (على الأقل 20 حرف)، أو اضغط 🔙 العودة للإلغاء."
-        )
-        return  # يبقى awaiting_strategy=True ليتمكن من إعادة المحاولة بنفس الرسالة التالية
-
-    context.user_data["awaiting_strategy"] = False
-    await _run_strategy_analysis(update, context, strategy_text)
 
 
 async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3533,25 +2863,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg = f"""🎯 *خطط الاشتراك - اختر ما يناسبك*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🥉 *الخطة الفضية — 9.99$*
+🥉 *الخطة الفضية — 10$*
 • سعر {PAIR_CFG['display_name']} الحي لحظة بلحظة
-• 15 إشارة يومياً (كاملة مع الأرقام)
-• مؤشرات RSI + MACD فقط
+• 3 إشارات يومياً (كاملة مع الأرقام)
+• مؤشرات RSI + MACD
 • معلومة الجلسة (لندن/نيويورك/آسيا)
 • دعم واتساب
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-🥈 *الخطة الذهبية — 17.99$*
+🥈 *الخطة الذهبية — 20$*
 • كل مميزات الفضية +
-• 20 إشارة يومياً (كاملة TP1+TP2+TP3)
+• 10 إشارات يومياً (كاملة TP1+TP2+TP3)
 • 3 تحليلات شارت AI يومياً
 • جميع المؤشرات الـ12 (RSI+MACD+BB+ATR+Stoch+Fib+S/R+EMA)
 • دعم واتساب أولوية
 
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-💎 *الخطة الماسية VIP — 34.99$*
+💎 *الخطة الماسية VIP — 50$*
 • كل مميزات الذهبية +
 • إشارات تلقائية غير محدودة 24/7
 • تحليل شارت AI غير محدود
@@ -3561,18 +2891,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔥 *الأكثر مبيعاً: الخطة الماسية!*
 ⚠️ الكورسات مدفوعة بشكل منفصل وليست ضمن الخطط"""
             markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🥉 الفضية 9.99$", callback_data="plan_basic"),
-                 InlineKeyboardButton("🥈 الذهبية 17.99$", callback_data="plan_pro")],
-                [InlineKeyboardButton("💎 الماسية VIP 34.99$", callback_data="plan_vip")],
+                [InlineKeyboardButton("🥉 الفضية 10$", callback_data="plan_basic"),
+                 InlineKeyboardButton("🥈 الذهبية 20$", callback_data="plan_pro")],
+                [InlineKeyboardButton("💎 الماسية VIP 50$", callback_data="plan_vip")],
                 [InlineKeyboardButton("💬 اشترك الآن واتساب", url=WHATSAPP_LINK)],
                 [InlineKeyboardButton("🔙 العودة", callback_data="start")]
             ])
             await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
         elif data == "plan_basic":
-            msg = f"""🥉 *الخطة الفضية — 9.99$ / شهر*
+            msg = f"""🥉 *الخطة الفضية — 10$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ سعر {PAIR_CFG['display_name']} الحي لحظة بلحظة ({PAIR_CFG['symbol']})
-✅ 15 إشارة يومياً (كاملة مع الأرقام)
+✅ 3 إشارات يومياً (كاملة مع الأرقام)
 ✅ دخول + TP1 + وقف الخسارة
 ✅ مؤشر RSI (14 فترة) + MACD (12/26/9)
 ✅ معلومة الجلسة التداولية
@@ -3585,16 +2915,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 💬 *تواصل معنا لتفعيل الفضية*"""
             markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("💬 اشترك الفضية 9.99$", url=WHATSAPP_LINK)],
-                [InlineKeyboardButton("⬆️ الذهبية 17.99$", callback_data="plan_pro"),
+                [InlineKeyboardButton("💬 اشترك الفضية 10$", url=WHATSAPP_LINK)],
+                [InlineKeyboardButton("⬆️ الذهبية 20$", callback_data="plan_pro"),
                  InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
             ])
             await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
         elif data == "plan_pro":
-            msg = f"""🥈 *الخطة الذهبية — 17.99$ / شهر*
+            msg = f"""🥈 *الخطة الذهبية — 20$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ سعر {PAIR_CFG['display_name']} الحي لحظة بلحظة
-✅ 20 إشارة يومياً (كاملة)
+✅ 10 إشارات يومياً (كاملة)
 ✅ دخول + TP1 + TP2 + TP3 + وقف الخسارة
 ✅ جميع المؤشرات الـ12:
    RSI + MACD + Bollinger + ATR + Stoch + Fibonacci + S/R + EMA
@@ -3607,13 +2937,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 💬 *تواصل معنا لتفعيل الذهبية*"""
             markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("💬 اشترك الذهبية 17.99$", url=WHATSAPP_LINK)],
-                [InlineKeyboardButton("⬆️ الماسية 34.99$", callback_data="plan_vip"),
+                [InlineKeyboardButton("💬 اشترك الذهبية 20$", url=WHATSAPP_LINK)],
+                [InlineKeyboardButton("⬆️ الماسية 50$", callback_data="plan_vip"),
                  InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
             ])
             await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
         elif data == "plan_vip":
-            msg = f"""💎 *الخطة الماسية VIP — 34.99$ / شهر*
+            msg = f"""💎 *الخطة الماسية VIP — 50$ / شهر*
 ━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ سعر {PAIR_CFG['display_name']} الحي لحظة بلحظة
 ✅ إشارات تلقائية غير محدودة 24/7
@@ -3628,15 +2958,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 💎 كل شيء غير محدود — مثالي للمتداول الجاد
 ⚠️ الكورسات مدفوعة بشكل منفصل"""
             markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔥 اشترك الماسية الآن 34.99$", url=WHATSAPP_LINK)],
+                [InlineKeyboardButton("🔥 اشترك الماسية الآن 50$", url=WHATSAPP_LINK)],
                 [InlineKeyboardButton("🔙 الخطط", callback_data="plans")]
             ])
             await query.edit_message_text(msg, reply_markup=markup, parse_mode="Markdown")
         elif data == "subscription":
             markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🥉 الفضية 9.99$", callback_data="plan_basic"),
-                 InlineKeyboardButton("🥈 الذهبية 17.99$", callback_data="plan_pro")],
-                [InlineKeyboardButton("💎 الماسية VIP 34.99$", callback_data="plan_vip")],
+                [InlineKeyboardButton("🥉 الفضية 10$", callback_data="plan_basic"),
+                 InlineKeyboardButton("🥈 الذهبية 20$", callback_data="plan_pro")],
+                [InlineKeyboardButton("💎 الماسية VIP 50$", callback_data="plan_vip")],
                 [InlineKeyboardButton("💬 اشترك الآن واتساب", url=WHATSAPP_LINK)],
                 [InlineKeyboardButton("🔙 العودة", callback_data="start")]
             ])
@@ -3692,11 +3022,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.answer("❌ حدث خطأ")
                 return
             _sigs_left = trial_remaining_signals(_u)
-            _tier = get_user_tier(_u)
-            if _u.is_vip and _tier:
-                _lim = TIER_LIMITS[_tier]
-                _sig_cap = "غير محدودة" if _lim["signals_per_day"] == -1 else f"{_u.signals_today or 0}/{_lim['signals_per_day']} اليوم"
-                _status = f"{_lim['name']} مفعّلة — إشارات {_sig_cap}"
+            if _u.is_vip:
+                _status = "💎 VIP مفعّل — إشارات غير محدودة"
                 _btn = InlineKeyboardButton("📞 تواصل مع الدعم", url=WHATSAPP_LINK)
             elif _sigs_left > 0:
                 _status = "🎁 تجربة مجانية — " + str(_sigs_left) + " إشارة متبقية"
@@ -3825,7 +3152,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🚀 *كن شريكاً في النجاح!*"""
             await query.edit_message_text(msg, reply_markup=back_menu(), parse_mode="Markdown")
         elif data == "strategy_analysis":
-            await handle_strategy_analysis(query, user_id, context)
+            await handle_strategy_analysis(query, user_id)
         elif data == "about":
             await query.edit_message_text(
                 f"🏆 *بوت التداول الذكي — {PAIR_CFG['symbol']} Pro*\n"
@@ -3858,7 +3185,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
         elif data == "strategy_analysis":
-            await handle_strategy_analysis(query, user_id, context)
+            await handle_strategy_analysis(query, user_id)
         elif data == "about":
             db = SessionLocal()
             user_count = db.query(TradingUser).count()
@@ -4027,45 +3354,6 @@ async def admin_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
     await update.message.reply_text(f"✅ تم إرسال الفيديو لـ {success} مستخدم.")
 
-async def admin_set_tier(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر الأدمن لتحديد خطة المستخدم: تجربة/فضية/ذهبية/ماسية"""
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    if len(context.args) < 2 or context.args[1].lower() not in ("trial", "basic", "pro", "vip"):
-        await update.message.reply_text(
-            "❌ استخدم: /set_tier [user_id] [trial|basic|pro|vip]\n\n"
-            "trial = تجربة مجانية\nbasic = 🥉 الفضية\npro = 🥈 الذهبية\nvip = 💎 الماسية"
-        )
-        return
-    target_id, tier = context.args[0], context.args[1].lower()
-    db = SessionLocal()
-    u = db.query(TradingUser).filter(TradingUser.tg_id == str(target_id)).first()
-    if not u:
-        await update.message.reply_text("❌ المستخدم غير موجود في قاعدة البيانات. اطلب منه إرسال /start أولاً.")
-        db.close()
-        return
-    if tier == "trial":
-        u.is_vip = False
-        u.tier = "trial"
-        label = "🎁 تجربة مجانية"
-    else:
-        u.is_vip = True
-        u.tier = tier
-        label = TIER_LIMITS[tier]["name"]
-    u.usage_date = ""
-    db.commit()
-    db.close()
-    await update.message.reply_text(f"✅ تم تعيين المستخدم {target_id} إلى خطة: {label}")
-    try:
-        await context.bot.send_message(
-            chat_id=int(target_id),
-            text=f"🎉 *تم تحديث اشتراكك!*\n\nخطتك الحالية: {label}\n\nأرسل /start لرؤية مميزاتك الجديدة.",
-            parse_mode="Markdown"
-        )
-    except Exception:
-        pass
-
-
 async def admin_set_vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
@@ -4095,7 +3383,7 @@ async def admin_signal_manual(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     if not finnhub_ws.is_data_fresh():
-        await asyncio.to_thread(gold_manager.update)
+        gold_manager.update()
     data = gold_manager.get_analysis_data()
     if not data:
         await update.message.reply_text("⚠️ لا تتوفر بيانات كافية بعد. حاول لاحقاً.")
@@ -4108,13 +3396,13 @@ async def admin_signal_manual(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("⚠️ لا توجد إشارة قوية بما يكفي الآن. النظام يحمي المستخدمين.")
         return
 
+    text = format_signal(signal)
     db = SessionLocal()
     users = db.query(TradingUser).filter(TradingUser.is_blocked == False).all()
     db.close()
     success = 0
     for u in users:
         try:
-            text = format_signal(signal, tier=get_user_tier(u) or "basic")
             await context.bot.send_message(chat_id=u.tg_id, text=text, parse_mode="Markdown")
             success += 1
             await asyncio.sleep(0.05)
@@ -4298,7 +3586,7 @@ async def admin_price_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
     if not finnhub_ws.is_data_fresh():
-        await asyncio.to_thread(gold_manager.update)
+        gold_manager.update()
     price    = gold_manager.current_price
     prices   = list(gold_manager.price_history)
     rsi_val  = TechnicalAnalysis.rsi(prices) if len(prices) >= 5 else None
@@ -4534,7 +3822,7 @@ async def price_update_job(context: ContextTypes.DEFAULT_TYPE):
         if not data_ok:
             # لا بيانات حديثة — HTTP fallback (Yahoo Finance اولاً)
             logger.warning("بيانات قديمة — HTTP fallback")
-            await asyncio.to_thread(gold_manager.update)
+            gold_manager.update()
 
         p = gold_manager.current_price or 0
         n = len(gold_manager.price_history)
@@ -4555,25 +3843,18 @@ async def price_update_job(context: ContextTypes.DEFAULT_TYPE):
         if data and len(data["prices"]) >= 50:
             signal = signal_engine.generate_signal(data)
             if signal:
-                # ── الإشارات التلقائية 24/7 حصرية للخطة الماسية VIP + مستخدمي التجربة المجانية ──
-                # 🥉 الفضية و🥈 الذهبية لا يستقبلون بث تلقائي — يطلبون الإشارة يدوياً ضمن حصتهم اليومية
+                text = format_signal(signal)
                 db = SessionLocal()
                 all_users = db.query(TradingUser).filter(
                     TradingUser.is_blocked == False
                 ).all()
                 db.close()
-                eligible_users = [
-                    u for u in all_users
-                    if (not u.is_vip and is_trial_active(u)) or get_user_tier(u) == "vip"
-                ]
+                eligible_users = [u for u in all_users if is_trial_active(u)]
                 sent = 0
                 for u in eligible_users:
                     try:
-                        u_tier = get_user_tier(u) or "basic"
-                        text = format_signal(signal, tier=u_tier)
-                        prefix = "🚨 *إشعار فوري — إشارة قوية!*\n\n" if u_tier == "vip" and signal["confidence"] > 80 else ""
                         await context.bot.send_message(
-                            chat_id=u.tg_id, text=prefix + text, parse_mode="Markdown"
+                            chat_id=u.tg_id, text=text, parse_mode="Markdown"
                         )
                         sent += 1
                         await asyncio.sleep(0.05)
@@ -4806,8 +4087,8 @@ async def post_init(application: Application):
     )
     application.job_queue.run_repeating(
         check_gold_alerts,
-        interval=15,
-        first=15,
+        interval=60,
+        first=30,
         name="gold_alerts_checker"
     )
     application.job_queue.run_daily(
@@ -4864,7 +4145,6 @@ def main():
     app.add_handler(CommandHandler("users", admin_users_list))
     app.add_handler(CommandHandler("userdata", admin_userdata))
     app.add_handler(CommandHandler("set_vip", admin_set_vip))
-    app.add_handler(CommandHandler("set_tier", admin_set_tier))
 
     # أوامر الأدمن - البث
     app.add_handler(CommandHandler("broadcast", admin_broadcast))
@@ -4904,7 +4184,6 @@ def main():
 
     # معالجة الصور (تحليل الشارت)
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_text_message))
 
     logger.info("🚀 بوت التداول الذكي v7.0 (مع مراقبة فتح السوق) يعمل الآن!")
     app.run_polling(drop_pending_updates=True)
